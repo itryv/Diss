@@ -14,10 +14,10 @@ export function Post() {
         <p style={{ color: '#a3988a', fontSize: 15.5, margin: 0 }}>{ended ? 'Thanks for coming — see you at the next one.' : 'Left by accident? Happens to the best of us.'}</p>
       </div>
       <div style={{ display: 'flex', gap: 12 }}>
-        {!ended && (
-          <button className="hv-primary" onClick={app.enterMeeting} style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 13, padding: '14px 30px', fontWeight: 700, fontSize: 15.5, cursor: 'pointer' }}>Rejoin</button>
+        {!ended && s.meeting && (
+          <button className="hv-primary" onClick={() => app.go('lobby', { permState: 'prompt', joinError: null })} style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 13, padding: '14px 30px', fontWeight: 700, fontSize: 15.5, cursor: 'pointer' }}>Rejoin</button>
         )}
-        <button className="hv-bg-2a" onClick={() => app.go('dash')} style={{ background: '#241f1a', border: '1px solid #362f28', color: '#f4eee5', borderRadius: 13, padding: '14px 26px', fontWeight: 600, fontSize: 15, cursor: 'pointer' }}>Back to home</button>
+        <button className="hv-bg-2a" onClick={() => app.go(s.user ? 'dash' : 'landing')} style={{ background: '#241f1a', border: '1px solid #362f28', color: '#f4eee5', borderRadius: 13, padding: '14px 26px', fontWeight: 600, fontSize: 15, cursor: 'pointer' }}>Back to home</button>
       </div>
       <div style={{ background: '#1e1a16', border: '1px solid #2e2822', borderRadius: 18, padding: '22px 28px', width: 360 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600, color: '#c9beb0', marginBottom: 12 }}>How was the call quality?</div>

@@ -17,6 +17,10 @@ npm run dev   # http://localhost:5173
 - `src/icons.tsx` — the design's SVG icon set
 - `src/ProtoNav.tsx` — floating prototype switcher (bottom-right): jump to any screen, switch host/guest role, participant count, waiting room on/off
 
-## What's real vs. simulated
+## What's real vs. stubbed
 
-Real: camera/mic capture and preview (`getUserMedia`, with denied/no-device/busy error states), all UI interaction, chat input, keyboard shortcuts. Simulated: remote participants (static roster + rotating active speaker), screen share, recording, connection stats — these are the seams where a media layer (LiveKit is the recommended one) plugs in.
+Real: auth (register/login/logout/session cookie via the backend, see `../docs/api-contract.md`), meeting create/list/delete, join codes and `?join=<code>` links, camera/mic preview (`getUserMedia`, with denied/no-device/busy error states), and the full in-meeting experience over LiveKit (`livekit-client`): participants, video/audio tracks, active speaker, mute/camera/screen-share toggles, chat + reactions + hand-raise over data messages (topics `chat` / `reaction` / `hand`), host moderation (mute/remove), reconnect banner from room events.
+
+Stubbed for v1: waiting room, recording, detailed connection stats, calendar export, OAuth sign-in, recordings/meeting-detail screens. The ProtoNav "In-meeting" jump renders the meeting screen with a clearly-named dev fallback roster (`devFallbackPeers`) without connecting.
+
+Dev servers expected: backend on `http://localhost:8787` (Vite proxies `/api`), LiveKit dev server per the contract doc.

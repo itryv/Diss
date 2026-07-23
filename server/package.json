@@ -1,0 +1,27 @@
+{
+  "name": "diss-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Backend for the Diss web meeting app",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "tsx test/smoke.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^11.0.1",
+    "better-sqlite3": "^12.2.0",
+    "fastify": "^5.4.0",
+    "livekit-server-sdk": "^2.13.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0"
+  }
+}

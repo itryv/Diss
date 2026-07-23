@@ -45,7 +45,8 @@ export function Lobby() {
   const s = app.s;
   const videoRef = useRef<HTMLVideoElement>(null);
   const initials = initialsOf(s.lobbyName);
-  const isHost = s.role === 'host';
+  const meeting = s.meeting;
+  const isHost = !!(s.user && meeting && String(meeting.hostUserId) === String(s.user.id));
 
   useEffect(() => {
     if (videoRef.current && app.streamRef.current && videoRef.current.srcObject !== app.streamRef.current) {
@@ -74,7 +75,7 @@ export function Lobby() {
               <div style={{ color: '#a3988a', fontSize: 14, maxWidth: 400, lineHeight: 1.6 }}>
                 Click the <span style={{ background: '#2a241e', borderRadius: 6, padding: '2px 8px', fontWeight: 600, color: '#f4eee5' }}><Ic name="videoOff" size={15} style={{ verticalAlign: -2 }} /></span> icon in the address bar, choose <span style={{ color: '#f4eee5', fontWeight: 600 }}>Allow</span>, then reload. No luck? You can still join to watch and listen.
               </div>
-              <button className="hv-bg-2a" onClick={() => { app.patch({ lobbyMic: false, lobbyCam: false }); app.proceedJoin(); }} style={{ background: '#241f1a', border: '1px solid #362f28', color: '#f4eee5', borderRadius: 12, padding: '12px 22px', fontWeight: 600, fontSize: 14, cursor: 'pointer', marginTop: 4 }}>Join without camera or mic</button>
+              <button className="hv-bg-2a" onClick={() => { app.patch({ lobbyMic: false, lobbyCam: false }); app.joinMeeting(); }} style={{ background: '#241f1a', border: '1px solid #362f28', color: '#f4eee5', borderRadius: 12, padding: '12px 22px', fontWeight: 600, fontSize: 14, cursor: 'pointer', marginTop: 4 }}>Join without camera or mic</button>
             </div>
           )}
           {s.permState === 'nodevice' && (
@@ -125,8 +126,9 @@ export function Lobby() {
       </div>
       <div style={{ width: 360, display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
-          <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 24 }}>Weekly team sync</div>
-          <div style={{ color: '#a3988a', fontSize: 14, marginTop: 3 }}>hosted by {isHost ? 'you' : 'Amara Okafor'}</div>
+          <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 24 }}>{meeting?.title || 'Meeting'}</div>
+          <div style={{ color: '#a3988a', fontSize: 14, marginTop: 3 }}>hosted by {isHost ? 'you' : meeting?.hostName || '…'}</div>
+          {meeting && <div style={{ color: '#6f665b', fontSize: 12.5, marginTop: 4, fontFamily: 'monospace' }}>{meeting.code}</div>}
         </div>
         <div>
           <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#a3988a', marginBottom: 7 }}>Your name</label>
@@ -144,9 +146,11 @@ export function Lobby() {
           </div>
           <MicMeter />
         </div>
-        <button className="hv-primary" onClick={app.proceedJoin} style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 14, padding: 16, fontWeight: 700, fontSize: 16.5, cursor: 'pointer', boxShadow: '0 8px 30px rgba(240,139,95,.2)' }}>
-          {!isHost && s.waitingRoom ? 'Ask to join' : 'Join now'}
+        <button className="hv-primary" onClick={app.joinMeeting} disabled={s.joining || !meeting} style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 14, padding: 16, fontWeight: 700, fontSize: 16.5, cursor: 'pointer', boxShadow: '0 8px 30px rgba(240,139,95,.2)', opacity: s.joining || !meeting ? 0.7 : 1 }}>
+          {s.joining ? 'Joining…' : 'Join now'}
         </button>
+        {!meeting && <div style={{ color: '#e0836f', fontSize: 13, textAlign: 'center' }}>No meeting selected — go back and pick one or enter a code.</div>}
+        {s.joinError && <div style={{ color: '#e0836f', fontSize: 13, textAlign: 'center' }}>{s.joinError}</div>}
         <button className="hv-fg" onClick={() => app.go('landing')} style={{ background: 'none', border: 'none', color: '#8a7f70', fontSize: 13.5, cursor: 'pointer' }}>Cancel</button>
       </div>
     </section>
@@ -165,17 +169,14 @@ export function Waiting() {
         ))}
       </div>
       <div>
-        <h1 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 30, margin: '0 0 8px' }}>Weekly team sync</h1>
-        <p style={{ color: '#a3988a', fontSize: 15.5, margin: 0 }}>Amara will let you in soon. Sit tight — you look great, by the way.</p>
+        <h1 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 30, margin: '0 0 8px' }}>{s.meeting?.title || 'Meeting'}</h1>
+        <p style={{ color: '#a3988a', fontSize: 15.5, margin: 0 }}>The host will let you in soon. Sit tight — you look great, by the way.</p>
+        <p style={{ color: '#6f665b', fontSize: 12.5, margin: '8px 0 0', fontFamily: 'monospace' }}>waiting room preview — coming in v2</p>
       </div>
       <div style={{ position: 'relative', width: 220, aspectRatio: '16/10', background: '#0e0c0a', borderRadius: 14, overflow: 'hidden', border: '1px solid #2e2822' }}>
-        {s.lobbyCam ? (
-          <img src="https://i.pravatar.cc/400?img=47" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
-        ) : (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#8a5a44', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 17, fontFamily: "'Bricolage Grotesque',sans-serif" }}>{initials}</div>
-          </div>
-        )}
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#8a5a44', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 17, fontFamily: "'Bricolage Grotesque',sans-serif" }}>{initials}</div>
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 10 }}>
         <AvControlButton kind="mic" size={44} />

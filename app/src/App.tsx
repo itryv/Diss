@@ -20,6 +20,16 @@ function Screens() {
       {s.screen === 'waiting' && <Waiting />}
       {s.screen === 'meeting' && <Meeting />}
       {s.screen === 'post' && <Post />}
+      {/* Global toasts (the meeting screen renders its own, above the control bar) */}
+      {s.screen !== 'meeting' && s.toasts.length > 0 && (
+        <div style={{ position: 'fixed', left: 18, bottom: 18, display: 'flex', flexDirection: 'column', gap: 8, zIndex: 120 }}>
+          {s.toasts.map(t => (
+            <div key={t.id} style={{ background: '#241f1a', border: '1px solid #3a332b', borderRadius: 12, padding: '11px 15px', fontSize: 13, boxShadow: '0 8px 30px rgba(0,0,0,.4)', animation: 'fadeUp .25s ease', maxWidth: 320 }}>
+              {t.text}
+            </div>
+          ))}
+        </div>
+      )}
       <ProtoNav />
     </div>
   );
