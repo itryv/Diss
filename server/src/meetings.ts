@@ -29,6 +29,8 @@ export interface MeetingJson {
   hostName: string;
   startsAt: string | null;
   createdAt: string;
+  waitingRoom: boolean;
+  locked: boolean;
 }
 
 export function meetingJson(row: MeetingRow & { host_name: string }): MeetingJson {
@@ -40,6 +42,8 @@ export function meetingJson(row: MeetingRow & { host_name: string }): MeetingJso
     hostName: row.host_name,
     startsAt: row.starts_at,
     createdAt: row.created_at,
+    waitingRoom: row.waiting_room === 1,
+    locked: row.locked === 1,
   };
 }
 

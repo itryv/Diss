@@ -1,0 +1,41 @@
+# Dev stack for Diss: LiveKit server + Redis + LiveKit Egress (for recording).
+# Run from this directory: docker compose up
+# The backend on the host talks to LiveKit at localhost:7880 and shares
+# ../server/data/recordings with the egress container (mounted as /out).
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit.yaml --bind 0.0.0.0 --node-ip 192.168.1.116
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    depends_on:
+      - redis
+
+  egress:
+    image: livekit/egress:latest
+    # Shares livekit's network namespace: livekit advertises node-ip 127.0.0.1
+    # (required for browsers on the host to complete ICE), and from inside
+    # livekit's netns 127.0.0.1 IS livekit — so egress's headless Chrome can
+    # receive media. With its own netns, egress would dial itself and abort
+    # with "Start signal not received".
+    network_mode: "service:livekit"
+    environment:
+      - EGRESS_CONFIG_FILE=/etc/egress.yaml
+    volumes:
+      - ./egress.yaml:/etc/egress.yaml:ro
+      - ../server/data/recordings:/out
+    # Room-composite egress runs headless Chrome, which needs this.
+    cap_add:
+      - SYS_ADMIN
+    depends_on:
+      - livekit
+      - redis

@@ -23,9 +23,11 @@ const env = readEnv({
   LIVEKIT_API_URL: "http://127.0.0.1:9",
   LIVEKIT_API_KEY: "devkey",
   LIVEKIT_API_SECRET: "secret",
+  EGRESS_ENABLED: false,
+  RECORDINGS_DIR: join(tempDir, "recordings"),
 });
 
-const app = buildServer(env);
+const app = await buildServer(env);
 const address = await app.listen({ port: 0, host: "127.0.0.1" });
 const base = address;
 
@@ -280,6 +282,289 @@ try {
     ok("invalid moderation action returns 400");
   }
 
+  // --- v2: meeting settings (PATCH) ---
+  const member: Ctx = {};
+  {
+    const reg = await api("POST", "/api/auth/register", {}, {
+      name: "Member",
+      email: "member@example.com",
+      password: "member-passw0rd",
+    });
+    assert.equal(reg.status, 201);
+    captureSession(member, reg.setCookie);
+  }
+  {
+    const r = await api("PATCH", `/api/meetings/${instant.id}`, {}, { title: "Nope" });
+    assert.equal(r.status, 401);
+    ok("PATCH meeting without session returns 401");
+  }
+  {
+    const r = await api("PATCH", `/api/meetings/${instant.id}`, member, { title: "Nope" });
+    assert.equal(r.status, 403);
+    ok("PATCH meeting by non-host returns 403");
+  }
+  {
+    const r = await api("PATCH", `/api/meetings/${instant.id}`, host, {
+      title: "Renamed standup",
+      waitingRoom: true,
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.meeting.title, "Renamed standup");
+    assert.equal(r.json.meeting.waitingRoom, true);
+    assert.equal(r.json.meeting.locked, false);
+    ok("host PATCH updates title and turns the waiting room on");
+  }
+  {
+    const r = await api("GET", `/api/meetings/${instant.code}`);
+    assert.equal(r.status, 200);
+    assert.equal(r.json.meeting.waitingRoom, true);
+    assert.equal(r.json.meeting.locked, false);
+    ok("meeting JSON now carries waitingRoom/locked booleans");
+  }
+
+  // --- v2: waiting room flow ---
+  let waitingId: string;
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/token`, {}, {
+      displayName: "Patient Guest",
+    });
+    assert.equal(r.status, 202);
+    assert.equal(r.json.status, "waiting");
+    assert.ok(r.json.waitingId);
+    assert.equal(r.json.token, undefined, "202 must not include a token");
+    waitingId = r.json.waitingId;
+    ok("guest token with waiting room on returns 202 {waitingId, status: waiting}");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/token`, host, {
+      displayName: "Remi",
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.isHost, true);
+    ok("host bypasses the waiting room and still gets a token");
+  }
+  {
+    const r = await api("GET", `/api/meetings/${instant.code}/waiting/${waitingId}`);
+    assert.equal(r.status, 200);
+    assert.equal(r.json.status, "waiting");
+    ok("guest poll returns status waiting before admission");
+  }
+  {
+    const r = await api("GET", `/api/meetings/${instant.code}/waiting/${crypto.randomUUID()}`);
+    assert.equal(r.status, 404);
+    ok("poll with unknown waitingId returns 404");
+  }
+  {
+    const r = await api("GET", `/api/meetings/${instant.code}/waiting`, member);
+    assert.equal(r.status, 403);
+    ok("waiting list for a non-host member returns 403 (not a co-host)");
+  }
+  {
+    const r = await api("GET", `/api/meetings/${instant.code}/waiting`);
+    assert.equal(r.status, 401);
+    ok("waiting list without session returns 401");
+  }
+  {
+    const r = await api("GET", `/api/meetings/${instant.code}/waiting`, host);
+    assert.equal(r.status, 200);
+    assert.equal(r.json.guests.length, 1);
+    assert.equal(r.json.guests[0].waitingId, waitingId);
+    assert.equal(r.json.guests[0].displayName, "Patient Guest");
+    assert.ok(r.json.guests[0].requestedAt);
+    ok("host waiting list shows the queued guest");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/waiting/${waitingId}`, member, {
+      action: "admit",
+    });
+    assert.equal(r.status, 403);
+    ok("admit by a non-host member returns 403");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/waiting/${waitingId}`, host, {
+      action: "admit",
+    });
+    assert.equal(r.status, 204);
+    ok("host admit returns 204");
+  }
+  {
+    const r = await api("GET", `/api/meetings/${instant.code}/waiting/${waitingId}`);
+    assert.equal(r.status, 200);
+    assert.equal(r.json.status, "admitted");
+    assert.equal(r.json.isHost, false);
+    assert.equal(r.json.url, env.LIVEKIT_URL);
+    assert.match(r.json.identity, /^guest-[0-9a-f]+$/);
+    const payload = decodeJwtPayload(r.json.token);
+    assert.equal(payload.video.room, instant.code);
+    assert.equal(payload.video.roomJoin, true);
+    assert.ok(!payload.video.roomAdmin, "admitted guest must not get roomAdmin");
+    assert.equal(payload.name, "Patient Guest");
+    ok("admitted guest poll returns a valid non-admin JWT for the room");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/token`, {}, {
+      displayName: "Unwanted Guest",
+    });
+    assert.equal(r.status, 202);
+    const deniedId = r.json.waitingId;
+    const deny = await api("POST", `/api/meetings/${instant.code}/waiting/${deniedId}`, host, {
+      action: "deny",
+    });
+    assert.equal(deny.status, 204);
+    const poll = await api("GET", `/api/meetings/${instant.code}/waiting/${deniedId}`);
+    assert.equal(poll.status, 200);
+    assert.equal(poll.json.status, "denied");
+    assert.equal(poll.json.token, undefined);
+    ok("denied guest poll returns status denied with no token");
+  }
+
+  // --- v2: locked meeting ---
+  {
+    const r = await api("PATCH", `/api/meetings/${instant.id}`, host, {
+      waitingRoom: false,
+      locked: true,
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.meeting.locked, true);
+    const guest = await api("POST", `/api/meetings/${instant.code}/token`, {}, {
+      displayName: "Late Guest",
+    });
+    assert.equal(guest.status, 423);
+    assert.equal(typeof guest.json.error, "string");
+    const hostToken = await api("POST", `/api/meetings/${instant.code}/token`, host, {
+      displayName: "Remi",
+    });
+    assert.equal(hostToken.status, 200);
+    assert.equal(hostToken.json.isHost, true);
+    ok("locked meeting: guest gets 423 {error}, host still joins");
+  }
+  {
+    const r = await api("PATCH", `/api/meetings/${instant.id}`, host, { locked: false });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.meeting.locked, false);
+    ok("host can unlock the meeting again");
+  }
+
+  // --- v2: moderation promote/demote authorization ---
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/moderate`, member, {
+      action: "promote",
+      identity: `user-anyone`,
+    });
+    assert.equal(r.status, 403);
+    ok("promote by a non-host (non-cohost) member returns 403");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/moderate`, host, {
+      action: "promote",
+      identity: "guest-abc123",
+    });
+    assert.equal(r.status, 403);
+    ok("promoting a guest-* identity returns 403 (guests can't be co-hosts)");
+  }
+  for (const action of ["promote", "demote"] as const) {
+    const r = await api("POST", `/api/meetings/${instant.code}/moderate`, host, {
+      action,
+      identity: "user-someone",
+    });
+    assert.ok(r.status === 502 || r.status === 204, `expected 502 or 204, got ${r.status}`);
+    ok(`host "${action}" reaches LiveKit and degrades gracefully (${r.status}) when unreachable`);
+  }
+
+  // --- v2: persistent messages ---
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/messages`, {}, {
+      text: "hello from a guest",
+      displayName: "Visitor",
+    });
+    assert.equal(r.status, 201);
+    assert.equal(r.json.message.identity, "guest");
+    assert.equal(r.json.message.displayName, "Visitor");
+    assert.equal(r.json.message.text, "hello from a guest");
+    assert.equal(r.json.message.meetingId, instant.id);
+    assert.ok(r.json.message.id && r.json.message.ts);
+    ok("guest message POST needs no session, identity guest");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/messages`, host, {
+      text: "hello from the host",
+      displayName: "Remi",
+    });
+    assert.equal(r.status, 201);
+    assert.equal(r.json.message.identity, `user-${instant.hostUserId}`);
+    ok("member message POST records identity user-<id>");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/messages`, {}, {
+      text: "x".repeat(2001),
+      displayName: "Spammy",
+    });
+    assert.equal(r.status, 400);
+    assert.equal(typeof r.json.error, "string");
+    ok("message over 2000 chars is rejected by schema with 400");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/messages`, {}, {
+      text: "x".repeat(2000),
+      displayName: "Chatty",
+    });
+    assert.equal(r.status, 201);
+    ok("message of exactly 2000 chars is accepted");
+  }
+  {
+    const r = await api("GET", `/api/meetings/${instant.code}/messages`);
+    assert.equal(r.status, 200);
+    assert.equal(r.json.messages.length, 3);
+    assert.equal(r.json.messages[0].text, "hello from a guest");
+    assert.equal(r.json.messages[1].text, "hello from the host");
+    ok("message GET returns history oldest first");
+  }
+  {
+    const r = await api("GET", "/api/meetings/zzz-zzzz-zzz/messages");
+    assert.equal(r.status, 404);
+    ok("messages for unknown meeting code return 404");
+  }
+
+  // --- v2: recordings (EGRESS_ENABLED=false) ---
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/recording`, {}, {
+      action: "start",
+    });
+    assert.equal(r.status, 401);
+    ok("recording without session returns 401");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/recording`, member, {
+      action: "start",
+    });
+    assert.equal(r.status, 403);
+    ok("recording by a non-host member returns 403");
+  }
+  for (const action of ["start", "stop"] as const) {
+    const r = await api("POST", `/api/meetings/${instant.code}/recording`, host, { action });
+    assert.equal(r.status, 503);
+    assert.equal(typeof r.json.error, "string");
+    ok(`recording "${action}" returns 503 {error} while EGRESS_ENABLED=false`);
+  }
+  {
+    const r = await api("GET", "/api/recordings", host);
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.json.recordings, []);
+    ok("recordings list is empty and requires auth");
+  }
+  {
+    const r = await api("GET", "/api/recordings");
+    assert.equal(r.status, 401);
+    ok("recordings list without session returns 401");
+  }
+  {
+    const r = await api("GET", "/api/recordings/nonexistent/file", host);
+    assert.equal(r.status, 404);
+    const del = await api("DELETE", "/api/recordings/nonexistent", host);
+    assert.equal(del.status, 404);
+    ok("recording file/delete for unknown id return 404");
+  }
+
   // --- delete ---
   {
     const r = await api("DELETE", `/api/meetings/${scheduled.id}`, host);
@@ -302,6 +587,23 @@ try {
     const me = await api("GET", "/api/auth/me", host);
     assert.equal(me.status, 401);
     ok("logout clears the cookie and invalidates the session");
+  }
+
+  // --- v2: rate limiting (kept last so 429s can't poison other checks) ---
+  {
+    let saw429: { status: number; json: any } | null = null;
+    for (let i = 0; i < 15 && !saw429; i++) {
+      const r = await api("POST", "/api/auth/register", {}, {
+        name: `Limit ${i}`,
+        email: `limit-${i}@example.com`,
+        password: "limit-passw0rd",
+      });
+      if (r.status === 429) saw429 = r;
+      else assert.ok(r.status === 201 || r.status === 409, `unexpected status ${r.status}`);
+    }
+    assert.ok(saw429, "expected register to hit the 10/window rate limit");
+    assert.equal(typeof saw429!.json.error, "string");
+    ok("register rate limit returns 429 {error} after 10 requests per window");
   }
 
   console.log(`\nAll ${passed} smoke checks passed.`);

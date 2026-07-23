@@ -1,0 +1,12 @@
+# LiveKit Egress config for the Diss dev stack.
+# egress shares livekit's network namespace (see docker-compose.yml), so
+# livekit is reachable at 127.0.0.1 — which matches the node-ip livekit
+# advertises in ICE candidates. Do not change this back to ws://livekit:7880.
+# File outputs land in /out, which is ../server/data/recordings on the host.
+api_key: devkey
+api_secret: secret
+ws_url: ws://127.0.0.1:7880
+redis:
+  address: redis:6379
+insecure: true
+log_level: info

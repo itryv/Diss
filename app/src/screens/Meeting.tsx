@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { ConnectionQuality } from 'livekit-client';
-import type { Track } from 'livekit-client';
+import type { Room, Track } from 'livekit-client';
 import { useApp } from '../store';
 import { useTiles } from '../tiles';
 import type { Tile } from '../tiles';
@@ -12,7 +12,7 @@ const ctrlBtn: React.CSSProperties = { height: 50, minWidth: 58, borderRadius: 1
 
 const EMOJIS: IconName[] = ['thumbsUp', 'heart', 'laugh', 'party', 'clap'];
 
-function TrackVideo({ track, mirror, style }: { track: Track; mirror?: boolean; style: React.CSSProperties }) {
+function TrackVideo({ track, mirror, mainStage, style }: { track: Track; mirror?: boolean; mainStage?: boolean; style: React.CSSProperties }) {
   const ref = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -20,7 +20,7 @@ function TrackVideo({ track, mirror, style }: { track: Track; mirror?: boolean; 
     track.attach(el);
     return () => { track.detach(el); };
   }, [track]);
-  return <video ref={ref} autoPlay muted playsInline style={{ ...style, transform: mirror ? 'scaleX(-1)' : undefined }} />;
+  return <video ref={ref} autoPlay muted playsInline data-main-stage={mainStage ? '1' : undefined} style={{ ...style, transform: mirror ? 'scaleX(-1)' : undefined }} />;
 }
 
 function TrackAudio({ track }: { track: Track }) {
@@ -37,7 +37,7 @@ function TrackAudio({ track }: { track: Track }) {
 function TileMedia({ tile, big }: { tile: Tile; big?: boolean }) {
   const fill: React.CSSProperties = { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: tile.isScreen ? 'contain' : 'cover' };
   if (tile.videoTrack && (tile.camOn || tile.isScreen)) {
-    return <TrackVideo track={tile.videoTrack} mirror={tile.you && !tile.isScreen} style={fill} />;
+    return <TrackVideo track={tile.videoTrack} mirror={tile.you && !tile.isScreen} mainStage={big} style={fill} />;
   }
   const size = big ? 110 : 64;
   return (
@@ -64,10 +64,13 @@ function HandBadge({ q }: { q: string }) {
 }
 
 function GridView() {
-  const { tiles, gridCols } = useTiles();
+  const app = useApp();
+  const { gridTiles, gridCols, gridPage, gridPages } = useTiles();
+  const pageBtn: React.CSSProperties = { position: 'absolute', top: '50%', transform: 'translateY(-50%)', zIndex: 15, width: 36, height: 56, borderRadius: 12, background: 'rgba(30,26,22,.9)', border: '1px solid #362f28', color: '#c9beb0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
   return (
-    <div style={{ height: '100%', display: 'grid', gridTemplateColumns: `repeat(${gridCols},1fr)`, gridAutoRows: '1fr', gap: 10 }}>
-      {tiles.map(p => (
+    <div style={{ height: '100%', position: 'relative' }}>
+      <div style={{ height: '100%', display: 'grid', gridTemplateColumns: `repeat(${gridCols},1fr)`, gridAutoRows: '1fr', gap: 10 }}>
+      {gridTiles.map(p => (
         <div key={p.key} className="tile" style={{ position: 'relative', background: '#17130f', borderRadius: 16, overflow: 'hidden', minHeight: 0, boxShadow: p.ring, transition: 'box-shadow .3s' }}>
           <TileMedia tile={p} />
           <div style={{ position: 'absolute', left: 10, bottom: 10, display: 'flex', alignItems: 'center', gap: 6, maxWidth: '75%' }}>
@@ -83,6 +86,24 @@ function GridView() {
           </div>
         </div>
       ))}
+      </div>
+      {gridPages > 1 && (
+        <>
+          {gridPage > 0 && (
+            <button className="hv-fg" onClick={() => app.patch({ gridPage: gridPage - 1 })} title="Previous page" style={{ ...pageBtn, left: 6 }}>
+              <Ic name="arrowLeft" size={16} />
+            </button>
+          )}
+          {gridPage < gridPages - 1 && (
+            <button className="hv-fg" onClick={() => app.patch({ gridPage: gridPage + 1 })} title="Next page" style={{ ...pageBtn, right: 6 }}>
+              <Ic name="arrowRight" size={16} />
+            </button>
+          )}
+          <span style={{ position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 15, background: 'rgba(30,26,22,.9)', border: '1px solid #362f28', borderRadius: 99, padding: '5px 13px', fontSize: 12, fontWeight: 600, color: '#a3988a', fontVariantNumeric: 'tabular-nums' }}>
+            page {gridPage + 1}/{gridPages}
+          </span>
+        </>
+      )}
     </div>
   );
 }
@@ -155,19 +176,35 @@ function SidePanel() {
       {s.tab === 'chat' ? (
         <>
           <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ textAlign: 'center', color: '#6f665b', fontSize: 11.5, padding: '4px 0' }}>Messages disappear when the meeting ends</div>
-            {s.messages.map((m, i) => (
-              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: m.mine ? 'flex-end' : 'flex-start' }}>
-                <div style={{ fontSize: 11.5, color: '#8a7f70', fontWeight: 600 }}>{m.who}</div>
-                <div style={{ background: m.mine ? '#f08b5f' : '#241f1a', color: m.mine ? '#241209' : '#f4eee5', borderRadius: 14, padding: '9px 13px', fontSize: 13.5, lineHeight: 1.45, maxWidth: '85%' }}>{m.text}</div>
-              </div>
-            ))}
+            <div style={{ textAlign: 'center', color: '#6f665b', fontSize: 11.5, padding: '4px 0' }}>Messages are saved with this meeting</div>
+            {s.messages.map((m, i) => {
+              const lastHistory = m.history && !s.messages[i + 1]?.history;
+              return (
+                <Fragment key={i}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: m.mine ? 'flex-end' : 'flex-start', opacity: m.history ? 0.75 : 1 }}>
+                    <div style={{ fontSize: 11.5, color: '#8a7f70', fontWeight: 600 }}>
+                      {m.who}
+                      {m.ts !== undefined && <span style={{ color: '#6f665b', fontWeight: 400, marginLeft: 6 }}>{new Date(m.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>}
+                    </div>
+                    <div style={{ background: m.mine ? '#f08b5f' : '#241f1a', color: m.mine ? '#241209' : '#f4eee5', borderRadius: 14, padding: '9px 13px', fontSize: 13.5, lineHeight: 1.45, maxWidth: '85%' }}>{m.text}</div>
+                  </div>
+                  {lastHistory && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#6f665b', fontSize: 11 }}>
+                      <span style={{ flex: 1, height: 1, background: '#2a241e' }} />
+                      earlier in this meeting
+                      <span style={{ flex: 1, height: 1, background: '#2a241e' }} />
+                    </div>
+                  )}
+                </Fragment>
+              );
+            })}
             <div ref={chatEnd} />
           </div>
           <div style={{ padding: 12, borderTop: '1px solid #2a241e', display: 'flex', gap: 8 }}>
             <input
               value={s.chatInput}
-              onChange={e => app.patch({ chatInput: e.target.value })}
+              maxLength={2000}
+              onChange={e => app.patch({ chatInput: e.target.value.slice(0, 2000) })}
               onKeyDown={e => { if (e.key === 'Enter') app.sendChat(); }}
               placeholder="Message everyone…"
               style={{ flex: 1, background: '#1c1815', border: '1px solid #3a332b', borderRadius: 11, padding: '11px 13px', color: '#f4eee5', fontSize: 13.5, fontFamily: 'inherit', outline: 'none' }}
@@ -178,6 +215,21 @@ function SidePanel() {
       ) : (
         <>
           <div style={{ flex: 1, overflowY: 'auto', padding: 14 }}>
+            {(s.isHost || s.isCoHost) && s.waitingGuests.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: '#f0a97f', marginBottom: 8 }}>Waiting to join · {s.waitingGuests.length}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {s.waitingGuests.map(g => (
+                    <div key={g.waitingId} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(240,139,95,.07)', border: '1px solid rgba(240,139,95,.25)', borderRadius: 12, padding: '9px 10px' }}>
+                      <span style={{ width: 28, height: 28, borderRadius: '50%', background: '#8a7a4a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 10.5, fontFamily: "'Bricolage Grotesque',sans-serif", flexShrink: 0 }}>{initialsOf(g.displayName)}</span>
+                      <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.displayName}</div>
+                      <button className="hv-primary" onClick={() => app.actOnWaiting(g.waitingId, 'admit')} style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 8, padding: '6px 12px', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Admit</button>
+                      <button className="hv-fg" onClick={() => app.actOnWaiting(g.waitingId, 'deny')} style={{ background: 'none', border: '1px solid #3a332b', color: '#8a7f70', borderRadius: 8, padding: '5px 10px', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>Deny</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: '#8a7f70', marginBottom: 8 }}>In meeting · {tiles.length}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               {tiles.map(p => (
@@ -189,6 +241,9 @@ function SidePanel() {
                   </div>
                   {p.hand && <span style={{ color: '#f0b45f' }}><Ic name="hand" size={14} /></span>}
                   <span style={{ color: p.muted ? '#e0836f' : '#6fbf8f' }}><Ic name={p.muted ? 'micOff' : 'mic'} size={14} /></span>
+                  {p.canPromote && (
+                    <button className="hv-fg" onClick={p.promoteToggle} title={p.isCoHost ? 'Remove co-host' : 'Make co-host'} style={{ background: 'none', border: 'none', color: p.isCoHost ? '#f0a97f' : '#6f665b', cursor: 'pointer', padding: 3 }}><Ic name="star" size={14} /></button>
+                  )}
                   {p.canModerate && (
                     <>
                       <button className="hv-fg" onClick={p.hostMute} title="Mute for everyone" disabled={p.muted} style={{ background: 'none', border: 'none', color: p.muted ? '#3a332b' : '#6f665b', cursor: p.muted ? 'default' : 'pointer', padding: 3 }}><Ic name="micOff" size={15} /></button>
@@ -199,10 +254,27 @@ function SidePanel() {
               ))}
             </div>
           </div>
-          {s.isHost && !s.devMode && (
-            <div style={{ padding: 12, borderTop: '1px solid #2a241e', display: 'flex', gap: 8 }}>
-              <button className="hv-bg-2a" onClick={app.muteAll} style={{ flex: 1, background: '#241f1a', border: '1px solid #362f28', color: '#f4eee5', borderRadius: 10, padding: 10, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}>Mute all</button>
-              <button onClick={() => app.toast('Locking the meeting is coming soon')} style={{ flex: 1, background: '#241f1a', border: '1px solid #362f28', color: '#8a7f70', borderRadius: 10, padding: 10, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}>Lock meeting</button>
+          {(s.isHost || s.isCoHost) && !s.devMode && (
+            <div style={{ padding: 12, borderTop: '1px solid #2a241e', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="hv-bg-2a" onClick={app.muteAll} style={{ flex: 1, background: '#241f1a', border: '1px solid #362f28', color: '#f4eee5', borderRadius: 10, padding: 10, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}>Mute all</button>
+                {s.isHost && (
+                  <button
+                    onClick={() => app.setMeetingFlag({ locked: !s.meeting?.locked })}
+                    style={{ flex: 1, background: s.meeting?.locked ? 'rgba(224,96,79,.12)' : '#241f1a', border: `1px solid ${s.meeting?.locked ? 'rgba(224,96,79,.45)' : '#362f28'}`, color: s.meeting?.locked ? '#e0836f' : '#c9beb0', borderRadius: 10, padding: 10, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}
+                  >
+                    <Lbl name="lock" text={s.meeting?.locked ? 'Locked' : 'Lock meeting'} size={13} />
+                  </button>
+                )}
+              </div>
+              {s.isHost && (
+                <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, cursor: 'pointer', padding: '2px 4px' }}>
+                  <span style={{ fontSize: 12.5, color: '#c9beb0', fontWeight: 600 }}>Waiting room for new guests</span>
+                  <span onClick={() => app.setMeetingFlag({ waitingRoom: !s.meeting?.waitingRoom })} style={{ width: 38, height: 22, borderRadius: 99, background: s.meeting?.waitingRoom ? '#f08b5f' : '#3a332b', position: 'relative', transition: 'background .15s', flexShrink: 0, cursor: 'pointer' }}>
+                    <span style={{ position: 'absolute', top: 3, left: s.meeting?.waitingRoom ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#f4eee5', transition: 'left .15s' }} />
+                  </span>
+                </label>
+              )}
             </div>
           )}
         </>
@@ -216,10 +288,20 @@ function ControlBar() {
   const s = app.s;
   const { tiles, handsAhead } = useTiles();
 
+  const pipSupported = typeof document !== 'undefined' && document.pictureInPictureEnabled;
   const moreItems: { label: React.ReactNode; color: string; go: () => void }[] = [
-    ...(s.isHost ? [{
-      label: <Lbl name="record" text="Start recording" />,
-      color: '#8a7f70', go: app.toggleRec,
+    ...(s.isHost || s.isCoHost ? [{
+      label: <Lbl name="record" text={s.recOn ? 'Stop recording' : 'Start recording'} />,
+      color: s.recOn ? '#e0836f' : '#f4eee5', go: app.toggleRec,
+    }] : []),
+    { label: <Lbl name="captions" text={s.captionsOn ? 'Turn off captions' : 'Captions'} />, color: s.captionsOn ? '#f0a97f' : '#f4eee5', go: app.toggleCaptions },
+    ...(s.blurSupported ? [{
+      label: <Lbl name="blur" text={s.blurOn ? 'Remove background blur' : 'Blur my background'} />,
+      color: s.blurOn ? '#f0a97f' : '#f4eee5', go: app.toggleBlur,
+    }] : []),
+    { label: <Lbl name="mic" text={`Noise suppression · ${s.nsOn ? 'on' : 'off'}`} />, color: s.nsOn ? '#f0a97f' : '#f4eee5', go: app.toggleNs },
+    ...(pipSupported ? [{
+      label: <Lbl name="pip" text="Picture-in-picture" />, color: '#f4eee5', go: app.togglePip,
     }] : []),
     { label: <Lbl name="keyboard" text="Keyboard shortcuts" />, color: '#f4eee5', go: () => app.patch({ shortcutsOpen: true, moreOpen: false }) },
     { label: <Lbl name="fullscreen" text="Fullscreen" />, color: '#f4eee5', go: () => { app.patch({ moreOpen: false }); document.documentElement.requestFullscreen?.().catch(() => {}); } },
@@ -271,7 +353,11 @@ function ControlBar() {
       </div>
       <div style={{ position: 'relative' }}>
         <button onClick={() => app.togglePanel('people')} title="People (P)" style={{ ...ctrlBtn, background: s.panel && s.tab === 'people' ? '#2e2822' : '#1e1a16' }}><Ic name="users" size={18} /></button>
-        <span style={{ position: 'absolute', top: -5, right: -5, background: '#2e2822', color: '#c9beb0', fontSize: 11, fontWeight: 700, borderRadius: 99, minWidth: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>{tiles.length}</span>
+        {s.waitingGuests.length > 0 && (s.isHost || s.isCoHost) ? (
+          <span style={{ position: 'absolute', top: -5, right: -5, background: '#f08b5f', color: '#241209', fontSize: 11, fontWeight: 800, borderRadius: 99, minWidth: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px', animation: 'badgePulse 1.6s infinite' }}>+{s.waitingGuests.length}</span>
+        ) : (
+          <span style={{ position: 'absolute', top: -5, right: -5, background: '#2e2822', color: '#c9beb0', fontSize: 11, fontWeight: 700, borderRadius: 99, minWidth: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>{tiles.length}</span>
+        )}
       </div>
       <div style={{ position: 'relative' }}>
         <button onClick={() => app.patch(st => ({ moreOpen: !st.moreOpen, reactionsOpen: false, leaveOpen: false }))} title="More" style={{ ...ctrlBtn, background: s.moreOpen ? '#2e2822' : '#1e1a16' }}><Ic name="more" size={18} /></button>
@@ -309,6 +395,85 @@ function ControlBar() {
   );
 }
 
+interface StatSample { up: number | null; down: number | null; rtt: number | null; loss: number | null; res: string; fps: number | null; }
+
+const fmtBitrate = (bps: number | null) =>
+  bps === null ? null : bps >= 1_000_000 ? `${(bps / 1_000_000).toFixed(1)} Mbps` : `${Math.max(0, Math.round(bps / 1000))} kbps`;
+
+/** Live WebRTC stats for the popup — polls getRTCStatsReport() on all tracks every 2s while open. */
+function ConnStats({ goodConn, connColor }: { goodConn: boolean; connColor: string }) {
+  const app = useApp();
+  const [sample, setSample] = useState<StatSample | null>(null);
+  const prevRef = useRef<{ ts: number; sent: number; recv: number } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const collect = async () => {
+      const room: Room | null = app.getRoom();
+      if (!room) return;
+      type StatsCapable = { getRTCStatsReport?: () => Promise<RTCStatsReport | undefined> };
+      const tracks: StatsCapable[] = [];
+      room.localParticipant.trackPublications.forEach(pub => { if (pub.track) tracks.push(pub.track as StatsCapable); });
+      room.remoteParticipants.forEach(p => p.trackPublications.forEach(pub => { if (pub.track) tracks.push(pub.track as StatsCapable); }));
+      const reports = (await Promise.all(
+        tracks.map(t => (typeof t.getRTCStatsReport === 'function' ? t.getRTCStatsReport().catch(() => undefined) : Promise.resolve(undefined))),
+      )).filter((r): r is RTCStatsReport => !!r);
+      if (!alive) return;
+
+      let sent = 0, recv = 0, rtt: number | null = null, loss: number | null = null, res = '', fps: number | null = null;
+      for (const report of reports) {
+        report.forEach(stat => {
+          if (stat.type === 'outbound-rtp') {
+            sent += stat.bytesSent ?? 0;
+            if (!res && stat.frameWidth) { res = `${stat.frameWidth}×${stat.frameHeight}`; fps = stat.framesPerSecond ?? fps; }
+          } else if (stat.type === 'inbound-rtp') {
+            recv += stat.bytesReceived ?? 0;
+            if (stat.frameWidth) { res = `${stat.frameWidth}×${stat.frameHeight}`; fps = stat.framesPerSecond ?? fps; }
+          } else if (stat.type === 'candidate-pair' && stat.currentRoundTripTime !== undefined && (stat.nominated || stat.state === 'succeeded')) {
+            rtt = Math.round(stat.currentRoundTripTime * 1000);
+          } else if (stat.type === 'remote-inbound-rtp' && stat.fractionLost !== undefined) {
+            loss = Math.max(loss ?? 0, stat.fractionLost * 100);
+          }
+        });
+      }
+      const now = Date.now();
+      const prev = prevRef.current;
+      prevRef.current = { ts: now, sent, recv };
+      if (!prev || now - prev.ts <= 0) return; // need two samples for bitrate
+      const dt = (now - prev.ts) / 1000;
+      setSample({
+        up: Math.max(0, ((sent - prev.sent) * 8) / dt),
+        down: Math.max(0, ((recv - prev.recv) * 8) / dt),
+        rtt, loss, res, fps,
+      });
+    };
+    collect();
+    const t = window.setInterval(collect, 2000);
+    return () => { alive = false; window.clearInterval(t); };
+  }, [app]);
+
+  const gathering = <span style={{ color: '#6f665b' }}>gathering…</span>;
+  const row = (label: string, value: React.ReactNode) => (
+    <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+      <span>{label}</span>
+      <span style={{ color: '#f4eee5', fontVariantNumeric: 'tabular-nums' }}>{value ?? gathering}</span>
+    </div>
+  );
+  return (
+    <div style={{ position: 'absolute', top: 48, right: 60, background: '#241f1a', border: '1px solid #3a332b', borderRadius: 14, padding: 16, zIndex: 40, width: 250, boxShadow: '0 12px 40px rgba(0,0,0,.5)' }}>
+      <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8, color: connColor }}>{goodConn ? 'Your connection looks great' : 'Your connection is unstable'}</div>
+      <div style={{ color: '#a3988a', fontSize: 12.5, lineHeight: 1.9, display: 'flex', flexDirection: 'column' }}>
+        {row('Bitrate up', sample ? fmtBitrate(sample.up) : null)}
+        {row('Bitrate down', sample ? fmtBitrate(sample.down) : null)}
+        {row('Round trip', sample?.rtt !== null && sample?.rtt !== undefined ? `${sample.rtt} ms` : null)}
+        {row('Packet loss', sample ? `${(sample.loss ?? 0).toFixed(1)}%` : null)}
+        {row('Video', sample?.res ? `${sample.res}${sample.fps ? ` @ ${Math.round(sample.fps)}` : ''}` : null)}
+      </div>
+      <div style={{ color: '#6f665b', fontSize: 11.5, marginTop: 8 }}>Updates every couple of seconds.</div>
+    </div>
+  );
+}
+
 export function Meeting() {
   const app = useApp();
   const s = app.s;
@@ -336,6 +501,11 @@ export function Meeting() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <span style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 16 }}>{s.meeting?.title || 'Meeting'}</span>
           <span style={{ color: '#8a7f70', fontSize: 13.5, fontVariantNumeric: 'tabular-nums' }}>{fmtElapsed(s.elapsedS)}</span>
+          {s.meeting?.locked && (
+            <span title="Meeting is locked" style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(224,96,79,.12)', border: '1px solid rgba(224,96,79,.35)', color: '#e0836f', borderRadius: 99, padding: '4px 11px', fontSize: 11.5, fontWeight: 700 }}>
+              <Ic name="lock" size={12} /> Locked
+            </span>
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <button className="hv-fg" onClick={() => app.patch(st => ({ view: st.view === 'grid' ? 'speaker' : 'grid' }))} style={{ background: '#1e1a16', border: '1px solid #2e2822', color: '#c9beb0', borderRadius: 99, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
@@ -347,17 +517,7 @@ export function Meeting() {
             <span style={{ width: 3, height: 13, background: 'currentColor', borderRadius: 1, opacity: goodConn ? 1 : 0.25 }} />
           </button>
           <button className="hv-fg" onClick={app.copyLink} title="Copy invite link" style={{ background: 'none', border: 'none', color: '#a3988a', cursor: 'pointer', padding: 7 }}><Ic name="link" size={18} /></button>
-          {s.connPop && (
-            <div style={{ position: 'absolute', top: 48, right: 60, background: '#241f1a', border: '1px solid #3a332b', borderRadius: 14, padding: 16, zIndex: 40, width: 240, boxShadow: '0 12px 40px rgba(0,0,0,.5)' }}>
-              <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8, color: connColor }}>{goodConn ? 'Your connection looks great' : 'Your connection is unstable'}</div>
-              <div style={{ color: '#a3988a', fontSize: 12.5, lineHeight: 1.7 }}>
-                Bitrate <span style={{ color: '#f4eee5', float: 'right' }}>—</span><br />
-                Latency <span style={{ color: '#f4eee5', float: 'right' }}>—</span><br />
-                Packet loss <span style={{ color: '#f4eee5', float: 'right' }}>—</span>
-              </div>
-              <div style={{ color: '#6f665b', fontSize: 11.5, marginTop: 8 }}>Detailed stats are coming soon.</div>
-            </div>
-          )}
+          {s.connPop && <ConnStats goodConn={goodConn} connColor={connColor} />}
         </div>
       </div>
 
@@ -386,6 +546,25 @@ export function Meeting() {
       </div>
 
       <ControlBar />
+
+      {/* Recording indicator — visible to everyone, even when the bars fade */}
+      {s.recOn && (
+        <div style={{ position: 'absolute', top: 14, left: '50%', transform: 'translateX(-50%)', zIndex: 26, display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(36,31,26,.92)', border: '1px solid rgba(224,96,79,.5)', borderRadius: 99, padding: '6px 14px', boxShadow: '0 8px 30px rgba(0,0,0,.35)' }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#e0604f', animation: 'recBlink 1.2s infinite' }} />
+          <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.09em', color: '#e0836f' }}>REC</span>
+        </div>
+      )}
+
+      {/* Live captions overlay */}
+      {s.captionsOn && s.captionLines.length > 0 && (
+        <div style={{ position: 'absolute', left: '50%', bottom: 96, transform: 'translateX(-50%)', zIndex: 34, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center', maxWidth: 'min(70%, 720px)', pointerEvents: 'none' }}>
+          {s.captionLines.map(l => (
+            <div key={l.id} style={{ background: 'rgba(14,12,10,.8)', backdropFilter: 'blur(4px)', borderRadius: 10, padding: '7px 14px', fontSize: 14.5, lineHeight: 1.4, color: l.interim ? '#c9beb0' : '#f4eee5', textAlign: 'center', animation: 'fadeUp .2s ease' }}>
+              <span style={{ color: '#f0a97f', fontWeight: 700, marginRight: 8 }}>{l.name}</span>{l.text}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Sharing pill */}
       {s.sharing && (

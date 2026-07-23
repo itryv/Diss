@@ -1,0 +1,7 @@
+# BuildKit per-Dockerfile ignore file (context is the repo root).
+*
+!server/package.json
+!server/package-lock.json
+!server/tsconfig.json
+!server/src
+server/src/**/*.test.ts

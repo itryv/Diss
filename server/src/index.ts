@@ -3,7 +3,7 @@ import { buildServer } from "./app.js";
 
 loadDotenv();
 const env = readEnv();
-const app = buildServer(env);
+const app = await buildServer(env);
 
 app
   .listen({ port: env.PORT, host: "0.0.0.0" })

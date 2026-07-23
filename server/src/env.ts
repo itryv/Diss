@@ -36,6 +36,10 @@ export interface Env {
   LIVEKIT_API_KEY: string;
   LIVEKIT_API_SECRET: string;
   CORS_ORIGIN: string;
+  EGRESS_ENABLED: boolean;
+  RECORDINGS_DIR: string;
+  /** Rate-limit window in ms (default 60s). Overridable mainly for tests. */
+  RATE_LIMIT_WINDOW_MS: number;
 }
 
 export function readEnv(overrides: Partial<Env> = {}): Env {
@@ -48,6 +52,9 @@ export function readEnv(overrides: Partial<Env> = {}): Env {
     LIVEKIT_API_KEY: process.env.LIVEKIT_API_KEY ?? "devkey",
     LIVEKIT_API_SECRET: process.env.LIVEKIT_API_SECRET ?? "secret",
     CORS_ORIGIN: process.env.CORS_ORIGIN ?? "http://localhost:5173",
+    EGRESS_ENABLED: (process.env.EGRESS_ENABLED ?? "false").toLowerCase() === "true",
+    RECORDINGS_DIR: process.env.RECORDINGS_DIR ?? "./data/recordings",
+    RATE_LIMIT_WINDOW_MS: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000),
     ...overrides,
   };
 }

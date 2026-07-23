@@ -1,0 +1,40 @@
+# Paste into your Caddyfile (the Caddy container must be on the external
+# docker network "web", which the diss stack joins).
+# Replace the domains with APP_DOMAIN / LIVEKIT_DOMAIN from deploy/.env.
+
+# --- App + API ---------------------------------------------------------------
+meet.example.com {
+    # Optional but recommended: access logs (see deploy/README.md MONITORING)
+    log {
+        output file /var/log/caddy/diss-access.log {
+            roll_size 50MiB
+            roll_keep 5
+        }
+    }
+
+    # Backend API
+    handle /api/* {
+        reverse_proxy diss-server:8787
+    }
+
+    # SPA (nginx serving the vite build)
+    handle {
+        reverse_proxy diss-app:80
+    }
+}
+
+# --- LiveKit signalling + WebRTC over websocket ------------------------------
+# Caddy proxies websockets automatically; browsers connect to
+# wss://livekit.example.com (LIVEKIT_URL = wss://<LIVEKIT_DOMAIN>).
+livekit.example.com {
+    reverse_proxy livekit:7880
+}
+
+# --- TURN subdomain (turn.example.com) — NOTE, not proxied here --------------
+# TURN/TLS (5349/tcp) and TURN/UDP (3478/udp) are NOT HTTP and cannot go
+# through a plain Caddyfile reverse_proxy. The compose stack publishes
+# 5349/tcp + 3478/udp directly on the host, so turn.example.com just needs an
+# A/AAAA record pointing at this VPS. For TLS on 5349 either build Caddy with
+# the layer4 module and terminate there (livekit.yaml external_tls: true), or
+# give LiveKit its own certificate (livekit.yaml cert_file/key_file). See
+# deploy/README.md "TURN TLS".

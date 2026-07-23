@@ -11,6 +11,9 @@ export interface Meeting {
   hostName: string;
   startsAt: string | null;
   createdAt: string;
+  // Contract v2
+  waitingRoom?: boolean;
+  locked?: boolean;
 }
 
 export interface TokenResponse {
@@ -18,6 +21,36 @@ export interface TokenResponse {
   url: string;
   identity: string;
   isHost: boolean;
+}
+
+/** 202 from the token endpoint when the meeting has a waiting room. */
+export interface WaitingResponse { waitingId: string; status: 'waiting'; }
+
+export type WaitingStatus =
+  | { status: 'waiting' }
+  | { status: 'denied' }
+  | ({ status: 'admitted' } & TokenResponse);
+
+export interface WaitingGuest { waitingId: string; displayName: string; requestedAt: string; }
+
+export type ModerateAction = 'mute' | 'remove' | 'promote' | 'demote';
+
+export interface PersistedMessage {
+  id: number | string;
+  meetingId: number | string;
+  identity: string;
+  displayName: string;
+  text: string;
+  ts: string | number;
+}
+
+export interface Recording {
+  id: number | string;
+  meetingCode: string;
+  title: string;
+  startedAt: string;
+  endedAt: string | null;
+  sizeBytes: number | null;
 }
 
 export class ApiError extends Error {
@@ -74,14 +107,44 @@ export const api = {
   deleteMeeting: (id: number | string) =>
     req<void>(`/meetings/${encodeURIComponent(String(id))}`, { method: 'DELETE' }),
 
-  // Joining / LiveKit
-  meetingToken: (code: string, displayName: string) =>
-    req<TokenResponse>(`/meetings/${encodeURIComponent(code)}/token`, { method: 'POST', json: { displayName } }),
+  patchMeeting: (id: number | string, body: { title?: string; startsAt?: string; waitingRoom?: boolean; locked?: boolean }) =>
+    req<{ meeting: Meeting }>(`/meetings/${encodeURIComponent(String(id))}`, { method: 'PATCH', json: body }),
 
-  // Moderation (host only)
-  moderate: (code: string, action: 'mute' | 'remove', identity: string) =>
+  // Joining / LiveKit — 200 with a token, or 202 {waitingId} when the waiting room is on
+  meetingToken: (code: string, displayName: string) =>
+    req<TokenResponse | WaitingResponse>(`/meetings/${encodeURIComponent(code)}/token`, { method: 'POST', json: { displayName } }),
+
+  // Waiting room
+  waitingStatus: (code: string, waitingId: string) =>
+    req<WaitingStatus>(`/meetings/${encodeURIComponent(code)}/waiting/${encodeURIComponent(waitingId)}`),
+  waitingList: (code: string) =>
+    req<{ guests: WaitingGuest[] }>(`/meetings/${encodeURIComponent(code)}/waiting`),
+  waitingAct: (code: string, waitingId: string, action: 'admit' | 'deny') =>
+    req<void>(`/meetings/${encodeURIComponent(code)}/waiting/${encodeURIComponent(waitingId)}`, { method: 'POST', json: { action } }),
+
+  // Moderation (host or co-host; promote/demote host only)
+  moderate: (code: string, action: ModerateAction, identity: string) =>
     req<void>(`/meetings/${encodeURIComponent(code)}/moderate`, { method: 'POST', json: { action, identity } }),
+
+  // Persistent chat
+  listMessages: (code: string) =>
+    req<{ messages: PersistedMessage[] }>(`/meetings/${encodeURIComponent(code)}/messages`),
+  postMessage: (code: string, text: string, displayName: string) =>
+    req<{ message: PersistedMessage }>(`/meetings/${encodeURIComponent(code)}/messages`, { method: 'POST', json: { text, displayName } }),
+
+  // Recording
+  recording: (code: string, action: 'start' | 'stop') =>
+    req<{ recording: { id: number | string; meetingCode: string; startedAt: string } }>(
+      `/meetings/${encodeURIComponent(code)}/recording`, { method: 'POST', json: { action } }),
+  listRecordings: () => req<{ recordings: Recording[] }>('/recordings'),
+  deleteRecording: (id: number | string) =>
+    req<void>(`/recordings/${encodeURIComponent(String(id))}`, { method: 'DELETE' }),
 };
+
+/** URL that streams a recording's MP4 (cookie-authenticated). */
+export function recordingFileUrl(id: number | string): string {
+  return `/api/recordings/${encodeURIComponent(String(id))}/file`;
+}
 
 /** Extract an abc-defg-hij join code from raw input (code or pasted link). */
 export function extractCode(raw: string): string | null {

@@ -1,8 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useApp, PALETTE } from '../store';
 import type { AppState } from '../store';
-import { meetingLink } from '../api';
-import type { Meeting } from '../api';
+import { api, meetingLink, recordingFileUrl } from '../api';
+import type { Meeting, Recording } from '../api';
 import { Ic } from '../icons';
 
 const inputStyle: React.CSSProperties = { width: '100%', background: '#1c1815', border: '1px solid #3a332b', borderRadius: 12, padding: '13px 14px', color: '#f4eee5', fontSize: 15, fontFamily: 'inherit', outline: 'none' };
@@ -247,31 +247,95 @@ function Detail() {
   );
 }
 
+const fmtBytes = (b: number | null): string => {
+  if (b === null) return 'file missing';
+  if (b >= 1024 ** 3) return `${(b / 1024 ** 3).toFixed(1)} GB`;
+  if (b >= 1024 ** 2) return `${Math.round(b / 1024 ** 2)} MB`;
+  return `${Math.max(1, Math.round(b / 1024))} KB`;
+};
+
+const fmtRecDuration = (r: Recording): string => {
+  if (!r.endedAt) return 'still recording';
+  const mins = Math.max(0, Math.round((new Date(r.endedAt).getTime() - new Date(r.startedAt).getTime()) / 60000));
+  return mins < 1 ? 'under a minute' : `${mins} min`;
+};
+
+const fmtRecDate = (r: Recording): string =>
+  new Date(r.startedAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) +
+  ' · ' + new Date(r.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
 function Recordings() {
   const app = useApp();
-  const recs = [
-    { title: 'Sprint retro', meta: 'Fri, Jul 17 · 42 min · 380 MB', g1: '#4a3a30', g2: '#2a2018' },
-    { title: 'All hands · July', meta: 'Wed, Jul 15 · 58 min · 512 MB', g1: '#3a4038', g2: '#20261e' },
-    { title: 'Roadmap review', meta: 'Jul 8 · 35 min · 298 MB', g1: '#403a48', g2: '#241f2a' },
-  ];
+  const [recs, setRecs] = useState<Recording[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmId, setConfirmId] = useState<Recording['id'] | null>(null);
+  const [playing, setPlaying] = useState<Recording | null>(null);
+
+  useEffect(() => {
+    api.listRecordings()
+      .then(({ recordings }) => setRecs(recordings))
+      .catch(() => { setRecs([]); setError("Couldn't load your recordings — try again in a bit."); });
+  }, []);
+
+  const remove = async (r: Recording) => {
+    setConfirmId(null);
+    try {
+      await api.deleteRecording(r.id);
+      setRecs(cur => (cur ? cur.filter(x => x.id !== r.id) : cur));
+      app.toast('Recording deleted');
+    } catch {
+      app.toast("Couldn't delete that recording");
+    }
+  };
+
   return (
     <div style={{ animation: 'fadeUp .35s ease' }}>
       <h1 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 28, margin: '0 0 24px' }}>Recordings</h1>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, maxWidth: 900 }}>
-        {recs.map(r => (
-          <div key={r.title} className="hv-border" onClick={() => app.go('detail')} style={{ background: '#1e1a16', border: '1px solid #2e2822', borderRadius: 16, overflow: 'hidden', cursor: 'pointer' }}>
-            <div style={{ aspectRatio: '16/9', background: `linear-gradient(135deg,${r.g1},${r.g2})`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(21,18,16,.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', paddingLeft: 3 }}>
-                <Ic name="play" size={16} color="#f4eee5" />
+      {recs === null && <div style={{ color: '#8a7f70', fontSize: 14 }}>Loading…</div>}
+      {error && <div style={{ color: '#e0836f', fontSize: 14 }}>{error}</div>}
+      {recs !== null && !error && recs.length === 0 && (
+        <div style={{ color: '#8a7f70', fontSize: 14, background: '#1e1a16', border: '1px solid #2e2822', borderRadius: 14, padding: '16px 18px', maxWidth: 640 }}>
+          No recordings yet — start one from the More menu during a meeting.
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 760 }}>
+        {(recs ?? []).map(r => (
+          <div key={r.id} className="hv-border" style={{ display: 'flex', alignItems: 'center', gap: 14, background: '#1e1a16', border: '1px solid #2e2822', borderRadius: 14, padding: '13px 16px' }}>
+            <button
+              onClick={() => setPlaying(r)}
+              title="Play recording"
+              disabled={!r.endedAt}
+              style={{ width: 40, height: 40, borderRadius: '50%', background: '#241f1a', border: '1px solid #362f28', color: r.endedAt ? '#f0a97f' : '#3a332b', cursor: r.endedAt ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', paddingLeft: 3, flexShrink: 0 }}
+            >
+              <Ic name="play" size={14} />
+            </button>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 14.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.title || r.meetingCode}</div>
+              <div style={{ color: '#8a7f70', fontSize: 12.5, marginTop: 2 }}>{fmtRecDate(r)} · {fmtRecDuration(r)} · {fmtBytes(r.sizeBytes)}</div>
+            </div>
+            <button className="hv-fg" onClick={() => window.open(recordingFileUrl(r.id), '_blank')} title="Open in a new tab" style={{ background: 'none', border: 'none', color: '#6f665b', cursor: 'pointer', padding: 4 }}><Ic name="share" size={16} /></button>
+            {confirmId === r.id ? (
+              <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <button className="hv-danger" onClick={() => remove(r)} style={{ background: '#c94a38', border: 'none', color: '#fff', borderRadius: 8, padding: '7px 12px', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Delete forever</button>
+                <button className="hv-fg" onClick={() => setConfirmId(null)} style={{ background: 'none', border: '1px solid #3a332b', color: '#8a7f70', borderRadius: 8, padding: '6px 10px', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>Keep</button>
               </span>
-            </div>
-            <div style={{ padding: '14px 16px' }}>
-              <div style={{ fontWeight: 600, fontSize: 14.5 }}>{r.title}</div>
-              <div style={{ color: '#8a7f70', fontSize: 12.5, marginTop: 3 }}>{r.meta}</div>
-            </div>
+            ) : (
+              <button className="hv-fg" onClick={() => setConfirmId(r.id)} title="Delete recording" style={{ background: 'none', border: 'none', color: '#6f665b', cursor: 'pointer', padding: 4 }}><Ic name="close" size={15} /></button>
+            )}
           </div>
         ))}
       </div>
+      {playing && (
+        <div onClick={() => setPlaying(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(10,8,6,.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 32 }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 'min(880px, 92vw)', background: '#1a1613', border: '1px solid #3a332b', borderRadius: 18, overflow: 'hidden', animation: 'fadeUp .25s ease' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px' }}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>{playing.title || playing.meetingCode}</div>
+              <button className="hv-fg" onClick={() => setPlaying(null)} style={{ background: 'none', border: 'none', color: '#6f665b', cursor: 'pointer', padding: 4 }}><Ic name="close" size={16} /></button>
+            </div>
+            <video src={recordingFileUrl(playing.id)} controls autoPlay style={{ display: 'block', width: '100%', aspectRatio: '16/9', background: '#0e0c0a' }} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

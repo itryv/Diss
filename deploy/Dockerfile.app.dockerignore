@@ -1,0 +1,5 @@
+# BuildKit per-Dockerfile ignore file (context is the repo root).
+*
+!app
+app/node_modules
+app/dist

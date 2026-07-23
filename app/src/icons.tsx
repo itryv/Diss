@@ -41,6 +41,9 @@ const PATHS: Record<string, string> = {
   clap: '<path d="M11 11 8.5 6.5a1.5 1.5 0 0 1 2.6-1.5L14 9"/><path d="M20 13a7 7 0 0 1-7 7 7 7 0 0 1-6-3.5L4.5 12a1.5 1.5 0 0 1 2.6-1.5L9 14"/><path d="M4 4l1 1M8 2v2M14 4l-1 1"/>',
   pin: '<path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/>',
   speaker: '<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>',
+  captions: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M13 15h4M7 11h2M11 11h6"/>',
+  blur: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  pip: '<rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="12" width="7" height="5" rx="1"/>',
 };
 
 const FILLED: Record<string, true> = { play: true, star: true, more: true, record: true, square: true };

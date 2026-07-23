@@ -22,6 +22,20 @@ export function AvControlButton({ kind, size = 48 }: { kind: 'mic' | 'cam'; size
   );
 }
 
+function PrefRow({ label, hint, on, onToggle }: { label: string; hint?: string; on: boolean; onToggle: () => void }) {
+  return (
+    <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, cursor: 'pointer', padding: '2px 0' }}>
+      <span style={{ minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 13.5, color: '#c9beb0', fontWeight: 600 }}>{label}</span>
+        {hint && <span style={{ display: 'block', fontSize: 11.5, color: '#6f665b', marginTop: 1 }}>{hint}</span>}
+      </span>
+      <span onClick={onToggle} style={{ width: 38, height: 22, borderRadius: 99, background: on ? '#f08b5f' : '#3a332b', position: 'relative', transition: 'background .15s', flexShrink: 0, cursor: 'pointer' }}>
+        <span style={{ position: 'absolute', top: 3, left: on ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#f4eee5', transition: 'left .15s' }} />
+      </span>
+    </label>
+  );
+}
+
 function MicMeter() {
   const app = useApp();
   const s = app.s;
@@ -139,6 +153,12 @@ export function Lobby() {
           <select style={selectStyle}><option>FaceTime HD Camera</option></select>
           <select style={selectStyle}><option>MacBook Pro Speakers</option><option>AirPods Pro</option></select>
         </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {s.blurSupported && (
+            <PrefRow label="Blur my background" hint="Kicks in once you join" on={s.blurOn} onToggle={app.toggleBlur} />
+          )}
+          <PrefRow label="Noise suppression" hint="Softens keyboard clatter and background hum" on={s.nsOn} onToggle={app.toggleNs} />
+        </div>
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#a3988a' }}>Speak to test your mic</span>
@@ -161,6 +181,24 @@ export function Waiting() {
   const app = useApp();
   const s = app.s;
   const initials = initialsOf(s.lobbyName);
+
+  if (s.waitingDenied) {
+    return (
+      <section style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, textAlign: 'center', padding: 32 }}>
+        <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(224,96,79,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#e0836f' }}>
+          <Ic name="lock" size={26} />
+        </div>
+        <div>
+          <h1 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 28, margin: '0 0 8px' }}>The host didn't let you in</h1>
+          <p style={{ color: '#a3988a', fontSize: 15, margin: 0, maxWidth: 420, lineHeight: 1.6 }}>
+            No hard feelings — it happens. If you think this is a mix-up, check with whoever invited you and try the link again.
+          </p>
+        </div>
+        <button className="hv-primary" onClick={app.cancelWaiting} style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 12, padding: '13px 28px', fontWeight: 700, fontSize: 15, cursor: 'pointer', marginTop: 6 }}>Back to home</button>
+      </section>
+    );
+  }
+
   return (
     <section style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 22, textAlign: 'center', padding: 32 }}>
       <div style={{ display: 'flex', gap: 8 }}>
@@ -171,7 +209,6 @@ export function Waiting() {
       <div>
         <h1 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 30, margin: '0 0 8px' }}>{s.meeting?.title || 'Meeting'}</h1>
         <p style={{ color: '#a3988a', fontSize: 15.5, margin: 0 }}>The host will let you in soon. Sit tight — you look great, by the way.</p>
-        <p style={{ color: '#6f665b', fontSize: 12.5, margin: '8px 0 0', fontFamily: 'monospace' }}>waiting room preview — coming in v2</p>
       </div>
       <div style={{ position: 'relative', width: 220, aspectRatio: '16/10', background: '#0e0c0a', borderRadius: 14, overflow: 'hidden', border: '1px solid #2e2822' }}>
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -181,7 +218,7 @@ export function Waiting() {
       <div style={{ display: 'flex', gap: 10 }}>
         <AvControlButton kind="mic" size={44} />
         <AvControlButton kind="cam" size={44} />
-        <button className="hv-fg" onClick={() => app.go('landing')} style={{ height: 44, borderRadius: 99, background: 'none', border: '1px solid #3a332b', color: '#c9beb0', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', padding: '0 18px' }}>Leave</button>
+        <button className="hv-fg" onClick={app.cancelWaiting} style={{ height: 44, borderRadius: 99, background: 'none', border: '1px solid #3a332b', color: '#c9beb0', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', padding: '0 18px' }}>Leave</button>
       </div>
     </section>
   );

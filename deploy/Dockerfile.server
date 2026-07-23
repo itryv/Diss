@@ -1,0 +1,27 @@
+# Diss backend (Fastify + better-sqlite3).
+# Build context is the REPO ROOT (see docker-compose.yml) so this file can
+# live in deploy/ without touching server/.
+
+FROM node:22-bookworm-slim AS build
+WORKDIR /srv
+# Toolchain in case better-sqlite3 has no prebuilt binary for this platform.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+COPY server/package.json server/package-lock.json ./
+RUN npm ci
+COPY server/tsconfig.json ./
+COPY server/src ./src
+RUN npm run build \
+    && npm prune --omit=dev
+
+FROM node:22-bookworm-slim
+ENV NODE_ENV=production
+WORKDIR /srv
+COPY --from=build /srv/package.json ./package.json
+COPY --from=build /srv/node_modules ./node_modules
+COPY --from=build /srv/dist ./dist
+# DB + recordings volume mounts here (DATABASE_PATH=/data/diss.db).
+RUN mkdir -p /data/recordings
+EXPOSE 8787
+CMD ["node", "dist/index.js"]

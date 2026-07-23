@@ -1,0 +1,102 @@
+# Diss production stack for a single VPS.
+#
+# Assumes Caddy already runs on this host attached to an external docker
+# network named "web" and owns ports 80/443 — see caddy-snippet.txt for the
+# Caddyfile additions. Nothing here publishes 80/443.
+#
+# REVIEW BEFORE FIRST USE — see README.md in this directory.
+
+name: diss
+
+services:
+  diss-server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.server
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "8787"
+      DATABASE_PATH: /data/diss.db
+      RECORDINGS_DIR: /data/recordings
+      # Browsers connect to the public LiveKit domain (via Caddy):
+      LIVEKIT_URL: wss://${LIVEKIT_DOMAIN}
+      # The backend talks to LiveKit over the internal network:
+      LIVEKIT_API_URL: http://livekit:7880
+      CORS_ORIGIN: https://${APP_DOMAIN}
+      EGRESS_ENABLED: ${EGRESS_ENABLED:-true}
+      # SESSION_SECRET, LIVEKIT_API_KEY, LIVEKIT_API_SECRET come from .env
+    volumes:
+      # SQLite DB + recordings live on the host so upgrades keep data.
+      - ./data/server:/data
+    networks:
+      - web
+      - internal
+    depends_on:
+      - livekit
+
+  diss-app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.app
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - web
+
+  livekit:
+    image: livekit/livekit-server:v1.9
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    environment:
+      # LiveKit merges this with the config file; keys never live on disk.
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7881:7881"        # WebRTC over TCP (ICE/TCP fallback)
+      - "7882:7882/udp"    # WebRTC UDP mux
+      - "3478:3478/udp"    # TURN/UDP
+      - "5349:5349"        # TURN/TLS
+    networks:
+      - web        # Caddy proxies wss://<LIVEKIT_DOMAIN> -> livekit:7880
+      - internal
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save "" --appendonly no
+    networks:
+      - internal
+
+  egress:
+    image: livekit/egress:v1.9
+    restart: unless-stopped
+    environment:
+      EGRESS_CONFIG_BODY: |
+        api_key: ${LIVEKIT_API_KEY}
+        api_secret: ${LIVEKIT_API_SECRET}
+        ws_url: ws://livekit:7880
+        redis:
+          address: redis:6379
+        log_level: info
+    volumes:
+      # Same host directory the server sees as /data/recordings — the egress
+      # writes /out/<code>-<startedAt>.mp4 per the API contract.
+      - ./data/server/recordings:/out
+    # Room composite egress runs headless Chrome; it needs a big /dev/shm.
+    shm_size: "1gb"
+    networks:
+      - internal
+    depends_on:
+      - livekit
+      - redis
+
+networks:
+  web:
+    external: true   # pre-existing network that Caddy is attached to
+  internal:
