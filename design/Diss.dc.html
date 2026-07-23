@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;padding:0;background:#151210;color:#f4eee5}
+*{box-sizing:border-box}
+a{color:#f0a97f;text-decoration:none}a:hover{color:#f6c2a2}
+input::placeholder,textarea::placeholder{color:#6f665b}
+select option{background:#241f1a;color:#f4eee5}
+@keyframes meterA{0%,100%{transform:scaleY(.2)}50%{transform:scaleY(1)}}
+@keyframes breathe{0%,100%{opacity:.35;transform:scale(1)}50%{opacity:.9;transform:scale(1.25)}}
+@keyframes floatUp{0%{transform:translateY(0) scale(.7);opacity:0}12%{opacity:1;transform:translateY(-24px) scale(1.1)}100%{transform:translateY(-220px) scale(1);opacity:0}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes glowPulse{0%,100%{box-shadow:0 0 0 2px #f08b5f,0 0 22px rgba(240,139,95,.45)}50%{box-shadow:0 0 0 3px #f08b5f,0 0 34px rgba(240,139,95,.7)}}
+@keyframes recBlink{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes badgePulse{0%,100%{box-shadow:0 0 0 0 rgba(240,139,95,.6)}70%{box-shadow:0 0 0 8px rgba(240,139,95,0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01s !important}}
+</style>
+</helmet>
+<div style="font-family:'Instrument Sans',sans-serif;min-height:100vh;background:#151210;color:#f4eee5;-webkit-font-smoothing:antialiased">
+
+<!-- ============ LANDING ============ -->
+<sc-if value="{{ isLanding }}" hint-placeholder-val="{{ true }}">
+<section data-screen-label="Landing" style="min-height:100vh;display:flex;flex-direction:column;background:radial-gradient(1000px 600px at 70% -10%, rgba(240,139,95,.10), transparent 60%), #151210">
+  <header style="display:flex;align-items:center;justify-content:space-between;padding:22px 48px">
+    <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:26px;letter-spacing:-0.5px;display:flex;align-items:center;gap:2px">diss<span style="color:#f08b5f;font-size:30px;line-height:0.6">.</span></div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <button onClick="{{ goAuthIn }}" style="background:none;border:none;color:#c9beb0;font-size:15px;font-weight:500;cursor:pointer;font-family:inherit;padding:10px 14px" style-hover="color:#f4eee5">Sign in</button>
+      <button onClick="{{ goAuthUp }}" style="background:#f08b5f;color:#241209;border:none;border-radius:12px;padding:11px 20px;font-weight:600;font-size:15px;cursor:pointer;font-family:inherit" style-hover="background:#f59e77">Sign up free</button>
+    </div>
+  </header>
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px 24px 80px">
+    <h1 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:72px;line-height:1.02;letter-spacing:-2px;margin:0 0 20px;max-width:820px;text-wrap:pretty">Click the link.<br>You're in.</h1>
+    <p style="font-size:19px;color:#a3988a;max-width:520px;margin:0 0 36px;line-height:1.55;text-wrap:pretty">Video meetings that start in seconds. No downloads, no sign-up for guests, no drama.</p>
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:center">
+      <button onClick="{{ goAuthUp }}" style="background:#f08b5f;color:#241209;border:none;border-radius:14px;padding:16px 28px;font-weight:700;font-size:17px;cursor:pointer;font-family:inherit;box-shadow:0 8px 30px rgba(240,139,95,.25)" style-hover="background:#f59e77">Start a meeting</button>
+      <div style="display:flex;gap:8px;align-items:center;background:#1e1a16;border:1px solid #362f28;border-radius:14px;padding:6px 6px 6px 16px">
+        <input value="{{ code }}" onChange="{{ onCode }}" placeholder="Enter a code or link" style="background:none;border:none;outline:none;color:#f4eee5;font-size:16px;font-family:inherit;width:210px">
+        <button onClick="{{ joinFromCode }}" disabled="{{ codeDisabled }}" style="background:{{ joinBtnBg }};color:{{ joinBtnFg }};border:none;border-radius:10px;padding:11px 18px;font-weight:600;font-size:15px;cursor:pointer;font-family:inherit">Join</button>
+      </div>
+    </div>
+    <sc-if value="{{ codeInvalid }}" hint-placeholder-val="{{ false }}">
+      <div style="margin-top:14px;color:#e0836f;font-size:14px">That code doesn't look right — check it and try again. Codes look like <span style="font-weight:600">abc-defg-hij</span>.</div>
+    </sc-if>
+    <div style="margin-top:90px;display:flex;gap:56px;flex-wrap:wrap;justify-content:center">
+      <div style="max-width:200px"><div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin-bottom:6px">10 seconds to join</div><div style="color:#a3988a;font-size:14px;line-height:1.5">Guests never see a signup wall. Ever.</div></div>
+      <div style="max-width:200px"><div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin-bottom:6px">Calm under pressure</div><div style="color:#a3988a;font-size:14px;line-height:1.5">Broken mic? Bad Wi-Fi? Every hiccup comes with a fix.</div></div>
+      <div style="max-width:200px"><div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:17px;margin-bottom:6px">Video is the hero</div><div style="color:#a3988a;font-size:14px;line-height:1.5">Controls show up when you need them, then get out of the way.</div></div>
+    </div>
+  </div>
+  <footer style="padding:20px 48px;color:#6f665b;font-size:13px;display:flex;justify-content:space-between;border-top:1px solid #241f1a"><span>© 2026 Diss</span><span style="display:flex;gap:18px"><a href="#" style="color:#6f665b">Privacy</a><a href="#" style="color:#6f665b">Terms</a></span></footer>
+</section>
+</sc-if>
+
+<!-- ============ AUTH ============ -->
+<sc-if value="{{ isAuth }}" hint-placeholder-val="{{ false }}">
+<section data-screen-label="Sign in / Sign up" style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(800px 500px at 30% 0%, rgba(240,139,95,.08), transparent 60%), #151210">
+  <div style="width:400px;background:#1e1a16;border:1px solid #362f28;border-radius:20px;padding:36px;animation:fadeUp .4s ease">
+    <div onClick="{{ goLanding }}" style="font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:22px;cursor:pointer;margin-bottom:24px">diss<span style="color:#f08b5f">.</span></div>
+    <sc-if value="{{ authNotSent }}" hint-placeholder-val="{{ true }}">
+      <h2 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:26px;margin:0 0 6px">{{ authTitle }}</h2>
+      <p style="color:#a3988a;font-size:14px;margin:0 0 24px">{{ authSub }}</p>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button onClick="{{ oauthGo }}" style="display:flex;align-items:center;justify-content:center;gap:10px;background:#2a241e;color:#f4eee5;border:1px solid #3a332b;border-radius:12px;padding:13px;font-weight:600;font-size:15px;cursor:pointer;font-family:inherit" style-hover="background:#332c25"><span style="width:18px;height:18px;border-radius:50%;background:conic-gradient(#ea4335 0 25%,#4285f4 0 50%,#34a853 0 75%,#fbbc05 0)"></span>Continue with Google</button>
+        <button onClick="{{ oauthGo }}" style="display:flex;align-items:center;justify-content:center;gap:10px;background:#2a241e;color:#f4eee5;border:1px solid #3a332b;border-radius:12px;padding:13px;font-weight:600;font-size:15px;cursor:pointer;font-family:inherit" style-hover="background:#332c25"><span style="width:18px;height:18px;display:grid;grid-template-columns:1fr 1fr;gap:2px"><span style="background:#f25022"></span><span style="background:#7fba00"></span><span style="background:#00a4ef"></span><span style="background:#ffb900"></span></span>Continue with Microsoft</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin:20px 0;color:#6f665b;font-size:13px"><span style="flex:1;height:1px;background:#362f28"></span>or<span style="flex:1;height:1px;background:#362f28"></span></div>
+      <input value="{{ email }}" onChange="{{ onEmail }}" placeholder="you@work.com" style="width:100%;background:#1c1815;border:1px solid #3a332b;border-radius:12px;padding:13px 14px;color:#f4eee5;font-size:15px;font-family:inherit;outline:none" style-focus="border-color:#f08b5f">
+      <sc-if value="{{ emailInvalid }}" hint-placeholder-val="{{ false }}"><div style="color:#e0836f;font-size:13px;margin-top:8px">Hmm, that doesn't look like an email address.</div></sc-if>
+      <button onClick="{{ sendMagic }}" style="width:100%;margin-top:12px;background:#f08b5f;color:#241209;border:none;border-radius:12px;padding:13px;font-weight:700;font-size:15px;cursor:pointer;font-family:inherit" style-hover="background:#f59e77">{{ magicLabel }}</button>
+      <div style="text-align:center;margin-top:18px;font-size:14px;color:#a3988a">{{ authSwapQ }} <a href="#" onClick="{{ swapAuth }}" style="font-weight:600">{{ authSwapA }}</a></div>
+      <div style="text-align:center;margin-top:16px;font-size:12px;color:#6f665b;line-height:1.5">By continuing you agree to our <a href="#" style="color:#8a7f70">Terms</a> and <a href="#" style="color:#8a7f70">Privacy Policy</a>.</div>
+    </sc-if>
+    <sc-if value="{{ authSent }}" hint-placeholder-val="{{ false }}">
+      <div style="text-align:center;padding:16px 0;animation:fadeUp .3s ease">
+        <div style="width:56px;height:56px;border-radius:50%;background:rgba(240,139,95,.14);display:flex;align-items:center;justify-content:center;margin:0 auto 18px;font-size:24px"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f08b5f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 6 10-6"/></svg></div>
+        <h2 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:24px;margin:0 0 8px">Check your inbox</h2>
+        <p style="color:#a3988a;font-size:14px;line-height:1.6;margin:0 0 22px">We sent a sign-in link to<br><span style="color:#f4eee5;font-weight:600">{{ email }}</span><br>It expires in 15 minutes.</p>
+        <button onClick="{{ magicClicked }}" style="background:#f08b5f;color:#241209;border:none;border-radius:12px;padding:12px 22px;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit">Open the link (prototype)</button>
+        <div style="margin-top:14px"><a href="#" onClick="{{ backToAuth }}" style="font-size:13px;color:#8a7f70">Use a different email</a></div>
+      </div>
+    </sc-if>
+  </div>
+</section>
+</sc-if>
+
+<!-- ============ APP SHELL ============ -->
+<sc-if value="{{ isApp }}" hint-placeholder-val="{{ false }}">
+<section data-screen-label="App" style="display:flex;min-height:100vh">
+  <nav style="width:232px;flex-shrink:0;background:#1a1613;border-right:1px solid #2a241e;display:flex;flex-direction:column;padding:20px 12px">
+    <div onClick="{{ goDash }}" style="font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:22px;padding:4px 12px 20px;cursor:pointer">diss<span style="color:#f08b5f">.</span></div>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <button onClick="{{ goDash }}" style="display:flex;align-items:center;gap:11px;background:{{ navHomeBg }};color:{{ navHomeFg }};border:none;border-radius:10px;padding:11px 12px;font-size:14.5px;font-weight:600;cursor:pointer;font-family:inherit;text-align:left" style-hover="background:#241f1a"><span style="display:inline-flex"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="m3 10 9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg></span>Home</button>
+      <button onClick="{{ goMeetings }}" style="display:flex;align-items:center;gap:11px;background:{{ navMeetBg }};color:{{ navMeetFg }};border:none;border-radius:10px;padding:11px 12px;font-size:14.5px;font-weight:600;cursor:pointer;font-family:inherit;text-align:left" style-hover="background:#241f1a"><span style="display:inline-flex"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>Meetings</button>
+      <button onClick="{{ goRecordings }}" style="display:flex;align-items:center;gap:11px;background:{{ navRecBg }};color:{{ navRecFg }};border:none;border-radius:10px;padding:11px 12px;font-size:14.5px;font-weight:600;cursor:pointer;font-family:inherit;text-align:left" style-hover="background:#241f1a"><span style="display:inline-flex"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg></span>Recordings</button>
+      <button onClick="{{ goSettings }}" style="display:flex;align-items:center;gap:11px;background:{{ navSetBg }};color:{{ navSetFg }};border:none;border-radius:10px;padding:11px 12px;font-size:14.5px;font-weight:600;cursor:pointer;font-family:inherit;text-align:left" style-hover="background:#241f1a"><span style="display:inline-flex"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>Settings</button>
+    </div>
+    <div style="margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;cursor:pointer" style-hover="background:#241f1a">
+      <img src="https://i.pravatar.cc/80?img=47" alt="" style="width:32px;height:32px;border-radius:50%;background:#8a5a44">
+      <div style="min-width:0"><div style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Maya Chen</div><div style="font-size:12px;color:#8a7f70">maya@diss.app</div></div>
+    </div>
+  </nav>
+  <main style="flex:1;min-width:0;padding:36px 44px;max-width:1060px">
+
+    <!-- Dashboard -->
+    <sc-if value="{{ isDash }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Dashboard" style="animation:fadeUp .35s ease">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <h1 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:32px;margin:0">{{ greeting }}, Maya</h1>
+          <div style="color:#8a7f70;font-size:15px;font-variant-numeric:tabular-nums">{{ clock }} · {{ dateStr }}</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:26px">
+          <div style="position:relative">
+            <button onClick="{{ newMeeting }}" style="width:100%;display:flex;flex-direction:column;align-items:flex-start;gap:10px;background:linear-gradient(135deg,#f08b5f,#e2734a);color:#241209;border:none;border-radius:18px;padding:22px;cursor:pointer;font-family:inherit;text-align:left" style-hover="filter:brightness(1.06)">
+              <span style="display:inline-flex"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="m16 10 4.55-2.28A1 1 0 0 1 22 8.6v6.8a1 1 0 0 1-1.45.9L16 14"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg></span><span style="font-weight:700;font-size:17px">New meeting</span><span style="font-size:13px;opacity:.75">Start one right now</span>
+            </button>
+            <button onClick="{{ toggleNewMenu }}" style="position:absolute;top:14px;right:14px;background:rgba(36,18,9,.15);border:none;border-radius:8px;width:28px;height:28px;cursor:pointer;color:#241209;font-size:12px;display:flex;align-items:center;justify-content:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="m6 9 6 6 6-6"/></svg></button>
+            <sc-if value="{{ newMenuOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;top:48px;right:10px;background:#241f1a;border:1px solid #3a332b;border-radius:12px;padding:6px;z-index:30;box-shadow:0 12px 40px rgba(0,0,0,.5);min-width:220px">
+                <button onClick="{{ newMeetingVideoOff }}" style="display:block;width:100%;text-align:left;background:none;border:none;color:#f4eee5;padding:10px 12px;font-size:14px;border-radius:8px;cursor:pointer;font-family:inherit" style-hover="background:#2e2822">Start with video off</button>
+                <button onClick="{{ copyInviteOnly }}" style="display:block;width:100%;text-align:left;background:none;border:none;color:#f4eee5;padding:10px 12px;font-size:14px;border-radius:8px;cursor:pointer;font-family:inherit" style-hover="background:#2e2822">Copy invite link instead</button>
+              </div>
+            </sc-if>
+          </div>
+          <button onClick="{{ openJoin }}" style="display:flex;flex-direction:column;align-items:flex-start;gap:10px;background:#241f1a;color:#f4eee5;border:1px solid #362f28;border-radius:18px;padding:22px;cursor:pointer;font-family:inherit;text-align:left" style-hover="background:#2a241e">
+            <span style="display:inline-flex"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></span><span style="font-weight:700;font-size:17px">Join</span><span style="font-size:13px;color:#8a7f70">With a code or link</span>
+          </button>
+          <button onClick="{{ goSchedule }}" style="display:flex;flex-direction:column;align-items:flex-start;gap:10px;background:#241f1a;color:#f4eee5;border:1px solid #362f28;border-radius:18px;padding:22px;cursor:pointer;font-family:inherit;text-align:left" style-hover="background:#2a241e">
+            <span style="display:inline-flex"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span><span style="font-weight:700;font-size:17px">Schedule</span><span style="font-size:13px;color:#8a7f70">Plan it, share the link</span>
+          </button>
+        </div>
+        <div style="margin-top:22px;background:linear-gradient(120deg,rgba(240,139,95,.12),rgba(240,139,95,.04));border:1px solid rgba(240,139,95,.3);border-radius:18px;padding:20px 24px;display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px">
+            <div style="font-size:12px;font-weight:700;letter-spacing:.08em;color:#f0a97f;text-transform:uppercase;margin-bottom:6px">Up next · in 12 min</div>
+            <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:20px">Weekly team sync</div>
+            <div style="color:#a3988a;font-size:13.5px;margin-top:2px">2:30 – 3:00 PM · hosted by you</div>
+          </div>
+          <div style="display:flex;align-items:center">
+            <img src="https://i.pravatar.cc/64?img=49" alt="" style="width:30px;height:30px;border-radius:50%;border:2px solid #1e1a16;background:#5a7a6a">
+            <img src="https://i.pravatar.cc/64?img=12" alt="" style="width:30px;height:30px;border-radius:50%;border:2px solid #1e1a16;margin-left:-8px;background:#7a5a7a">
+            <img src="https://i.pravatar.cc/64?img=26" alt="" style="width:30px;height:30px;border-radius:50%;border:2px solid #1e1a16;margin-left:-8px;background:#5a6a8a">
+            <span style="width:30px;height:30px;border-radius:50%;background:#2e2822;border:2px solid #1e1a16;margin-left:-8px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#a3988a">+6</span>
+          </div>
+          <button onClick="{{ newMeeting }}" style="background:#f08b5f;color:#241209;border:none;border-radius:12px;padding:13px 30px;font-weight:700;font-size:15px;cursor:pointer;font-family:inherit" style-hover="background:#f59e77">Join</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:30px">
+          <div>
+            <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:16px;margin:0 0 12px;color:#c9beb0">Upcoming</h3>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <sc-for list="{{ upcoming }}" as="m" hint-placeholder-count="2">
+                <div style="display:flex;align-items:center;gap:12px;background:#1e1a16;border:1px solid #2e2822;border-radius:14px;padding:13px 16px" style-hover="border-color:#3a332b">
+                  <img src="{{ m.img }}" alt="" style="width:34px;height:34px;border-radius:50%;background:#5a7a6a">
+                  <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ m.title }}</div><div style="color:#8a7f70;font-size:12.5px">{{ m.when }}</div></div>
+                  <button onClick="{{ m.join }}" disabled="{{ m.disabled }}" style="background:{{ m.btnBg }};color:{{ m.btnFg }};border:none;border-radius:9px;padding:8px 16px;font-weight:600;font-size:13px;cursor:pointer;font-family:inherit">Join</button>
+                  <button onClick="{{ m.copy }}" title="Copy invite" style="background:none;border:none;color:#6f665b;font-size:16px;cursor:pointer;padding:4px" style-hover="color:#f4eee5"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div>
+            <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:16px;margin:0 0 12px;color:#c9beb0">Recent</h3>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <sc-for list="{{ recent }}" as="m" hint-placeholder-count="2">
+                <div onClick="{{ m.open }}" style="display:flex;align-items:center;gap:12px;background:#1e1a16;border:1px solid #2e2822;border-radius:14px;padding:13px 16px;cursor:pointer" style-hover="border-color:#3a332b">
+                  <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14.5px">{{ m.title }}</div><div style="color:#8a7f70;font-size:12.5px">{{ m.when }} · {{ m.dur }} · {{ m.people }} people</div></div>
+                  <sc-if value="{{ m.rec }}" hint-placeholder-val="{{ false }}"><span style="display:flex;align-items:center;gap:5px;background:rgba(224,96,79,.12);color:#e0836f;font-size:11.5px;font-weight:700;border-radius:99px;padding:4px 10px"><span style="width:6px;height:6px;border-radius:50%;background:#e0604f"></span>REC</span></sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- Schedule -->
+    <sc-if value="{{ isSchedule }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Schedule a meeting" style="max-width:560px;animation:fadeUp .35s ease">
+        <h1 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:28px;margin:0 0 24px">Schedule a meeting</h1>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div><label style="display:block;font-size:13px;font-weight:600;color:#a3988a;margin-bottom:7px">Title</label>
+            <input value="{{ schedTitle }}" onChange="{{ onSchedTitle }}" placeholder="Weekly team sync" style="width:100%;background:#1c1815;border:1px solid #3a332b;border-radius:12px;padding:13px 14px;color:#f4eee5;font-size:15px;font-family:inherit;outline:none" style-focus="border-color:#f08b5f"></div>
+          <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px">
+            <div><label style="display:block;font-size:13px;font-weight:600;color:#a3988a;margin-bottom:7px">Date</label><input value="Tue, Jul 21" readOnly="{{ true }}" style="width:100%;background:#1c1815;border:1px solid #3a332b;border-radius:12px;padding:13px 14px;color:#f4eee5;font-size:14px;font-family:inherit;outline:none"></div>
+            <div><label style="display:block;font-size:13px;font-weight:600;color:#a3988a;margin-bottom:7px">Start</label><select style="width:100%;background:#1c1815;border:1px solid #3a332b;border-radius:12px;padding:13px 10px;color:#f4eee5;font-size:14px;font-family:inherit;outline:none"><option>3:00 PM</option><option>3:30 PM</option><option>4:00 PM</option></select></div>
+            <div><label style="display:block;font-size:13px;font-weight:600;color:#a3988a;margin-bottom:7px">Duration</label><select style="width:100%;background:#1c1815;border:1px solid #3a332b;border-radius:12px;padding:13px 10px;color:#f4eee5;font-size:14px;font-family:inherit;outline:none"><option>30 min</option><option>45 min</option><option>60 min</option></select></div>
+          </div>
+          <div style="font-size:13px;color:#8a7f70">Time zone: <span style="color:#c9beb0;font-weight:600">Pacific Time (auto-detected)</span> · <a href="#">change</a></div>
+          <div style="background:#1e1a16;border:1px solid #2e2822;border-radius:14px">
+            <button onClick="{{ toggleOptions }}" style="width:100%;display:flex;justify-content:space-between;align-items:center;background:none;border:none;color:#f4eee5;padding:15px 16px;font-size:14.5px;font-weight:600;cursor:pointer;font-family:inherit">Meeting options<span style="color:#8a7f70">{{ optionsChevron }}</span></button>
+            <sc-if value="{{ optionsOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:2px 16px 14px;display:flex;flex-direction:column;gap:12px">
+                <sc-for list="{{ schedOpts }}" as="o" hint-placeholder-count="4">
+                  <label style="display:flex;justify-content:space-between;align-items:center;gap:12px;cursor:pointer">
+                    <span style="font-size:14px;color:#c9beb0">{{ o.label }}</span>
+                    <span onClick="{{ o.toggle }}" style="width:38px;height:22px;border-radius:99px;background:{{ o.bg }};position:relative;transition:background .15s;flex-shrink:0"><span style="position:absolute;top:3px;left:{{ o.knob }};width:16px;height:16px;border-radius:50%;background:#f4eee5;transition:left .15s"></span></span>
+                  </label>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+          <div><label style="display:block;font-size:13px;font-weight:600;color:#a3988a;margin-bottom:7px">Description / agenda <span style="color:#6f665b;font-weight:400">(optional)</span></label>
+            <textarea placeholder="What's this meeting about?" style="width:100%;min-height:80px;background:#1c1815;border:1px solid #3a332b;border-radius:12px;padding:13px 14px;color:#f4eee5;font-size:14.5px;font-family:inherit;outline:none;resize:vertical" style-focus="border-color:#f08b5f"></textarea></div>
+          <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button onClick="{{ goDash }}" style="background:none;border:1px solid #3a332b;color:#c9beb0;border-radius:12px;padding:12px 20px;font-weight:600;font-size:14.5px;cursor:pointer;font-family:inherit" style-hover="color:#f4eee5">Cancel</button>
+            <button onClick="{{ saveSchedule }}" style="background:#f08b5f;color:#241209;border:none;border-radius:12px;padding:12px 24px;font-weight:700;font-size:14.5px;cursor:pointer;font-family:inherit" style-hover="background:#f59e77">Save meeting</button>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- Schedule confirmation -->
+    <sc-if value="{{ isSchedDone }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Meeting scheduled" style="max-width:560px;animation:fadeUp .35s ease">
+        <div style="width:52px;height:52px;border-radius:50%;background:rgba(111,191,143,.15);display:flex;align-items:center;justify-content:center;font-size:24px;color:#6fbf8f;margin-bottom:18px"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="M20 6 9 17l-5-5"/></svg></div>
+        <h1 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:28px;margin:0 0 4px">{{ schedTitleFinal }} is on the calendar</h1>
+        <p style="color:#a3988a;font-size:15px;margin:0 0 26px">Tuesday, July 21 · 3:00 – 3:30 PM · Pacific Time</p>
+        <div style="background:#1e1a16;border:1px solid #362f28;border-radius:16px;padding:18px;display:flex;align-items:center;gap:12px">
+          <div style="flex:1;min-width:0;font-size:15px;color:#c9beb0;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">diss.app/wkt-eamq-fjz</div>
+          <button onClick="{{ copyLink }}" style="background:#f08b5f;color:#241209;border:none;border-radius:11px;padding:12px 22px;font-weight:700;font-size:14.5px;cursor:pointer;font-family:inherit;flex-shrink:0" style-hover="background:#f59e77">{{ copyLabel }}</button>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+          <button onClick="{{ copyInvitation }}" style="background:#241f1a;border:1px solid #362f28;color:#f4eee5;border-radius:11px;padding:11px 16px;font-weight:600;font-size:13.5px;cursor:pointer;font-family:inherit" style-hover="background:#2a241e">Copy invitation</button>
+          <button style="background:#241f1a;border:1px solid #362f28;color:#f4eee5;border-radius:11px;padding:11px 16px;font-weight:600;font-size:13.5px;cursor:pointer;font-family:inherit" style-hover="background:#2a241e">Add to Google Calendar</button>
+          <button style="background:#241f1a;border:1px solid #362f28;color:#f4eee5;border-radius:11px;padding:11px 16px;font-weight:600;font-size:13.5px;cursor:pointer;font-family:inherit" style-hover="background:#2a241e">Add to Outlook</button>
+        </div>
+        <button onClick="{{ goDash }}" style="margin-top:26px;background:none;border:none;color:#f0a97f;font-weight:600;font-size:14.5px;cursor:pointer;font-family:inherit;padding:0">Done → back to home</button>
+      </div>
+    </sc-if>
+
+    <!-- Meeting detail -->
+    <sc-if value="{{ isDetail }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Meeting detail" style="max-width:640px;animation:fadeUp .35s ease">
+        <button onClick="{{ goDash }}" style="background:none;border:none;color:#8a7f70;font-size:14px;cursor:pointer;font-family:inherit;padding:0;margin-bottom:18px" style-hover="color:#f4eee5"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0;vertical-align:-3px"><path d="M19 12H5"/><path d="m11 6-6 6 6 6"/></svg> Back</button>
+        <h1 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:28px;margin:0 0 4px">Sprint retro</h1>
+        <p style="color:#a3988a;font-size:15px;margin:0 0 22px">Friday, Jul 17 · 42 min · hosted by you</p>
+        <div style="display:flex;gap:10px;margin-bottom:26px">
+          <span style="display:flex;align-items:center;gap:6px;background:rgba(224,96,79,.12);color:#e0836f;font-size:12px;font-weight:700;border-radius:99px;padding:6px 12px"><span style="width:6px;height:6px;border-radius:50%;background:#e0604f"></span>Recorded</span>
+          <button onClick="{{ goRecordings }}" style="background:#241f1a;border:1px solid #362f28;color:#f4eee5;border-radius:99px;padding:6px 14px;font-weight:600;font-size:12.5px;cursor:pointer;font-family:inherit" style-hover="background:#2a241e">Watch recording</button>
+        </div>
+        <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:15px;margin:0 0 10px;color:#c9beb0">Attendees · 6</h3>
+        <div style="display:flex;flex-direction:column;gap:6px;max-width:380px">
+          <sc-for list="{{ attendees }}" as="a" hint-placeholder-count="4">
+            <div style="display:flex;align-items:center;gap:11px;padding:8px 4px"><img src="{{ a.img }}" alt="" style="width:30px;height:30px;border-radius:50%;background:{{ a.color }}"><span style="font-size:14.5px;font-weight:500">{{ a.name }}</span><span style="color:#6f665b;font-size:12.5px;margin-left:auto">{{ a.role }}</span></div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- Recordings -->
+    <sc-if value="{{ isRecordings }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Recordings" style="animation:fadeUp .35s ease">
+        <h1 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:28px;margin:0 0 24px">Recordings</h1>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;max-width:900px">
+          <sc-for list="{{ recordings }}" as="r" hint-placeholder-count="3">
+            <div onClick="{{ r.open }}" style="background:#1e1a16;border:1px solid #2e2822;border-radius:16px;overflow:hidden;cursor:pointer" style-hover="border-color:#3a332b">
+              <div style="aspect-ratio:16/9;background:linear-gradient(135deg,{{ r.g1 }},{{ r.g2 }});display:flex;align-items:center;justify-content:center"><span style="width:44px;height:44px;border-radius:50%;background:rgba(21,18,16,.7);display:flex;align-items:center;justify-content:center;font-size:15px;padding-left:3px"><svg width="16" height="16" viewBox="0 0 24 24" fill="#f4eee5" stroke="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="M6 4v16l14-8z"/></svg></span></div>
+              <div style="padding:14px 16px"><div style="font-weight:600;font-size:14.5px">{{ r.title }}</div><div style="color:#8a7f70;font-size:12.5px;margin-top:3px">{{ r.meta }}</div></div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- Settings -->
+    <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+      <div data-screen-label="Settings" style="max-width:600px;animation:fadeUp .35s ease">
+        <h1 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:28px;margin:0 0 20px">Settings</h1>
+        <div style="display:flex;gap:6px;margin-bottom:26px">
+          <sc-for list="{{ settingsTabs }}" as="t" hint-placeholder-count="4">
+            <button onClick="{{ t.go }}" style="background:{{ t.bg }};color:{{ t.fg }};border:none;border-radius:99px;padding:9px 18px;font-weight:600;font-size:13.5px;cursor:pointer;font-family:inherit">{{ t.label }}</button>
+          </sc-for>
+        </div>
+        <sc-if value="{{ setProfile }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:18px">
+            <div style="display:flex;align-items:center;gap:16px"><img src="https://i.pravatar.cc/120?img=47" alt="" style="width:64px;height:64px;border-radius:50%;background:#8a5a44"><button style="background:#241f1a;border:1px solid #362f28;color:#f4eee5;border-radius:10px;padding:9px 15px;font-weight:600;font-size:13px;cursor:pointer;font-family:inherit" style-hover="background:#2a241e">Change photo</button></div>
+            <div><label style="display:block;font-size:13px;font-weight:600;color:#a3988a;margin-bottom:7px">Display name</label><input value="Maya Chen" readOnly="{{ true }}" style="width:100%;max-width:340px;background:#1c1815;border:1px solid #3a332b;border-radius:12px;padding:12px 14px;color:#f4eee5;font-size:15px;font-family:inherit;outline:none"></div>
+            <div><label style="display:block;font-size:13px;font-weight:600;color:#a3988a;margin-bottom:7px">Email</label><input value="maya@diss.app" readOnly="{{ true }}" style="width:100%;max-width:340px;background:#1a1613;border:1px solid #2e2822;border-radius:12px;padding:12px 14px;color:#8a7f70;font-size:15px;font-family:inherit;outline:none"><div style="font-size:12px;color:#6f665b;margin-top:6px">Managed by your Google account</div></div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ setAV }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:14px;max-width:420px">
+            <div><label style="display:block;font-size:13px;font-weight:600;color:#a3988a;margin-bottom:7px">Default microphone</label><select style="width:100%;background:#1c1815;border:1px solid #3a332b;border-radius:12px;padding:12px;color:#f4eee5;font-size:14px;font-family:inherit;outline:none"><option>MacBook Pro Microphone</option><option>AirPods Pro</option></select></div>
+            <div><label style="display:block;font-size:13px;font-weight:600;color:#a3988a;margin-bottom:7px">Default camera</label><select style="width:100%;background:#1c1815;border:1px solid #3a332b;border-radius:12px;padding:12px;color:#f4eee5;font-size:14px;font-family:inherit;outline:none"><option>FaceTime HD Camera</option></select></div>
+            <sc-for list="{{ avToggles }}" as="o" hint-placeholder-count="3">
+              <label style="display:flex;justify-content:space-between;align-items:center;gap:12px;cursor:pointer;padding:4px 0">
+                <span style="font-size:14px;color:#c9beb0">{{ o.label }}</span>
+                <span onClick="{{ o.toggle }}" style="width:38px;height:22px;border-radius:99px;background:{{ o.bg }};position:relative;transition:background .15s;flex-shrink:0"><span style="position:absolute;top:3px;left:{{ o.knob }};width:16px;height:16px;border-radius:50%;background:#f4eee5;transition:left .15s"></span></span>
+              </label>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ setNotif }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:14px;max-width:420px">
+            <sc-for list="{{ notifToggles }}" as="o" hint-placeholder-count="2">
+              <label style="display:flex;justify-content:space-between;align-items:center;gap:12px;cursor:pointer;padding:4px 0">
+                <span style="font-size:14px;color:#c9beb0">{{ o.label }}</span>
+                <span onClick="{{ o.toggle }}" style="width:38px;height:22px;border-radius:99px;background:{{ o.bg }};position:relative;transition:background .15s;flex-shrink:0"><span style="position:absolute;top:3px;left:{{ o.knob }};width:16px;height:16px;border-radius:50%;background:#f4eee5;transition:left .15s"></span></span>
+              </label>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ setAccount }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:18px;max-width:460px">
+            <div style="background:#1e1a16;border:1px solid #2e2822;border-radius:14px;padding:16px;display:flex;align-items:center;gap:12px"><span style="width:18px;height:18px;border-radius:50%;background:conic-gradient(#ea4335 0 25%,#4285f4 0 50%,#34a853 0 75%,#fbbc05 0)"></span><div style="flex:1"><div style="font-weight:600;font-size:14px">Google</div><div style="color:#8a7f70;font-size:12.5px">maya@diss.app</div></div><span style="color:#6fbf8f;font-size:12.5px;font-weight:600">Connected</span></div>
+            <div style="border:1px solid rgba(224,96,79,.35);border-radius:14px;padding:18px">
+              <div style="font-weight:700;font-size:14.5px;color:#e0836f;margin-bottom:6px">Danger zone</div>
+              <div style="color:#a3988a;font-size:13px;line-height:1.5;margin-bottom:12px">Deleting your account removes all meetings and recordings. This can't be undone.</div>
+              <button style="background:none;border:1px solid rgba(224,96,79,.5);color:#e0836f;border-radius:10px;padding:9px 15px;font-weight:600;font-size:13px;cursor:pointer;font-family:inherit" style-hover="background:rgba(224,96,79,.1)">Delete account…</button>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+  </main>
+
+  <!-- Join modal -->
+  <sc-if value="{{ joinModalOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeJoin }}" style="position:fixed;inset:0;background:rgba(10,8,6,.65);display:flex;align-items:center;justify-content:center;z-index:50">
+      <div onClick="{{ stop }}" style="width:400px;background:#241f1a;border:1px solid #3a332b;border-radius:20px;padding:28px;animation:fadeUp .25s ease">
+        <h2 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:22px;margin:0 0 6px">Join a meeting</h2>
+        <p style="color:#a3988a;font-size:13.5px;margin:0 0 18px">Paste a link or type the code from your invite.</p>
+        <input value="{{ code }}" onChange="{{ onCode }}" placeholder="abc-defg-hij" style="width:100%;background:#1c1815;border:1px solid #3a332b;border-radius:12px;padding:13px 14px;color:#f4eee5;font-size:15px;font-family:inherit;outline:none" style-focus="border-color:#f08b5f">
+        <sc-if value="{{ codeInvalid }}" hint-placeholder-val="{{ false }}"><div style="color:#e0836f;font-size:13px;margin-top:8px">That code doesn't look right — check it and try again.</div></sc-if>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+          <button onClick="{{ closeJoin }}" style="background:none;border:1px solid #3a332b;color:#c9beb0;border-radius:11px;padding:11px 18px;font-weight:600;font-size:14px;cursor:pointer;font-family:inherit">Cancel</button>
+          <button onClick="{{ joinFromCode }}" disabled="{{ codeDisabled }}" style="background:{{ joinBtnBg }};color:{{ joinBtnFg }};border:none;border-radius:11px;padding:11px 22px;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit">Join</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</section>
+</sc-if>
+
+<!-- ============ PRE-JOIN LOBBY ============ -->
+<sc-if value="{{ isLobby }}" hint-placeholder-val="{{ false }}">
+<section data-screen-label="Pre-join lobby" style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px;gap:36px;flex-wrap:wrap">
+  <div style="width:min(58vw,760px);min-width:420px">
+    <div style="position:relative;aspect-ratio:16/10;background:#0e0c0a;border-radius:22px;overflow:hidden;border:1px solid #2e2822">
+      <sc-if value="{{ lobbyPrompt }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:32px">
+          <div style="display:flex"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="m16 10 4.55-2.28A1 1 0 0 1 22 8.6v6.8a1 1 0 0 1-1.45.9L16 14"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg></div>
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:20px">We need access to your camera and mic</div>
+          <div style="color:#a3988a;font-size:14px;max-width:360px;line-height:1.5">So people can see and hear you. You can turn either off any time.</div>
+          <button onClick="{{ allowAccess }}" style="background:#f08b5f;color:#241209;border:none;border-radius:12px;padding:13px 26px;font-weight:700;font-size:15px;cursor:pointer;font-family:inherit;margin-top:6px" style-hover="background:#f59e77">Allow access</button>
+        </div>
+      </sc-if>
+      <sc-if value="{{ lobbyDenied }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:32px">
+          <div style="display:flex"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:20px">Your browser blocked the camera and mic</div>
+          <div style="color:#a3988a;font-size:14px;max-width:400px;line-height:1.6">Click the <span style="background:#2a241e;border-radius:6px;padding:2px 8px;font-weight:600;color:#f4eee5"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0;vertical-align:-2px"><path d="M10.66 6H14a2 2 0 0 1 2 2v2.34l1 1L22 8v8"/><path d="M16 16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2"/><line x1="2" y1="2" x2="22" y2="22"/></svg></span> icon in the address bar, choose <span style="color:#f4eee5;font-weight:600">Allow</span>, then reload. No luck? You can still join to watch and listen.</div>
+          <button onClick="{{ joinWithoutAV }}" style="background:#241f1a;border:1px solid #362f28;color:#f4eee5;border-radius:12px;padding:12px 22px;font-weight:600;font-size:14px;cursor:pointer;font-family:inherit;margin-top:4px" style-hover="background:#2a241e">Join without camera or mic</button>
+        </div>
+      </sc-if>
+      <sc-if value="{{ lobbyNoDevice }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:32px">
+          <div style="width:88px;height:88px;border-radius:50%;background:#8a5a44;display:flex;align-items:center;justify-content:center;font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:30px">{{ lobbyInitials }}</div>
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:19px">No camera detected</div>
+          <div style="color:#a3988a;font-size:14px;max-width:360px;line-height:1.5">You'll show up as your initials — totally fine. Plug one in any time and we'll pick it up.</div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ lobbyBusy }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:32px">
+          <div style="display:flex"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3.5"/></svg></div>
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:20px">Another app is using your camera</div>
+          <div style="color:#a3988a;font-size:14px;max-width:380px;line-height:1.5">Close the other app (often Zoom, FaceTime, or OBS) and try again.</div>
+          <button onClick="{{ retryCam }}" style="background:#f08b5f;color:#241209;border:none;border-radius:12px;padding:12px 24px;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit" style-hover="background:#f59e77">Try again</button>
+        </div>
+      </sc-if>
+      <sc-if value="{{ lobbyGranted }}" hint-placeholder-val="{{ false }}">
+        <sc-if value="{{ lobbyCamOn }}" hint-placeholder-val="{{ true }}">
+          <sc-if value="{{ realCam }}" hint-placeholder-val="{{ false }}">
+            <video ref="{{ videoRef }}" autoPlay="{{ true }}" muted="{{ true }}" playsInline="{{ true }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)"></video>
+          </sc-if>
+          <sc-if value="{{ fakeCam }}" hint-placeholder-val="{{ true }}">
+            <img src="https://i.pravatar.cc/900?img=47" alt="Camera preview placeholder" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);filter:saturate(.9)">
+            <div style="position:absolute;top:14px;left:14px;background:rgba(14,12,10,.6);border-radius:99px;padding:5px 12px;font-size:11.5px;color:#a3988a;font-family:monospace">simulated camera preview</div>
+          </sc-if>
+        </sc-if>
+        <sc-if value="{{ lobbyCamOff }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#141110">
+            <div style="width:96px;height:96px;border-radius:50%;background:#8a5a44;display:flex;align-items:center;justify-content:center;font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:32px">{{ lobbyInitials }}</div>
+          </div>
+        </sc-if>
+        <div style="position:absolute;left:14px;bottom:14px;background:rgba(14,12,10,.65);backdrop-filter:blur(6px);border-radius:99px;padding:6px 14px;font-size:13px;font-weight:600">{{ lobbyNameChip }}</div>
+        <div style="position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:10px">
+          <button onClick="{{ lobbyToggleMic }}" title="{{ lobbyMicTitle }}" style="width:48px;height:48px;border-radius:50%;background:{{ lobbyMicBg }};border:1px solid {{ lobbyMicBorder }};color:#f4eee5;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center">{{ lobbyMicIcon }}</button>
+          <button onClick="{{ lobbyToggleCam }}" title="{{ lobbyCamTitle }}" style="width:48px;height:48px;border-radius:50%;background:{{ lobbyCamBg }};border:1px solid {{ lobbyCamBorder }};color:#f4eee5;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center">{{ lobbyCamIcon }}</button>
+        </div>
+      </sc-if>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;align-items:center">
+      <span style="font-size:11.5px;color:#6f665b;font-family:monospace">demo the permission states:</span>
+      <sc-for list="{{ permChips }}" as="c" hint-placeholder-count="5">
+        <button onClick="{{ c.go }}" style="background:{{ c.bg }};border:1px solid {{ c.border }};color:{{ c.fg }};border-radius:99px;padding:5px 12px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit">{{ c.label }}</button>
+      </sc-for>
+    </div>
+  </div>
+  <div style="width:360px;display:flex;flex-direction:column;gap:16px">
+    <div>
+      <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:24px">{{ lobbyMeetingTitle }}</div>
+      <div style="color:#a3988a;font-size:14px;margin-top:3px">hosted by {{ lobbyHostName }}</div>
+    </div>
+    <div><label style="display:block;font-size:13px;font-weight:600;color:#a3988a;margin-bottom:7px">Your name</label>
+      <input value="{{ lobbyName }}" onChange="{{ onLobbyName }}" placeholder="How should we introduce you?" style="width:100%;background:#1c1815;border:1px solid #3a332b;border-radius:12px;padding:13px 14px;color:#f4eee5;font-size:15px;font-family:inherit;outline:none" style-focus="border-color:#f08b5f"></div>
+    <div style="display:flex;flex-direction:column;gap:9px">
+      <select style="width:100%;background:#1c1815;border:1px solid #3a332b;border-radius:11px;padding:11px 12px;color:#c9beb0;font-size:13.5px;font-family:inherit;outline:none"><option>MacBook Pro Microphone</option><option>AirPods Pro</option></select>
+      <select style="width:100%;background:#1c1815;border:1px solid #3a332b;border-radius:11px;padding:11px 12px;color:#c9beb0;font-size:13.5px;font-family:inherit;outline:none"><option>FaceTime HD Camera</option></select>
+      <select style="width:100%;background:#1c1815;border:1px solid #3a332b;border-radius:11px;padding:11px 12px;color:#c9beb0;font-size:13.5px;font-family:inherit;outline:none"><option>MacBook Pro Speakers</option><option>AirPods Pro</option></select>
+    </div>
+    <div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px"><span style="font-size:13px;font-weight:600;color:#a3988a">Speak to test your mic</span><a href="#" onClick="{{ testSpeaker }}" style="font-size:12.5px">{{ speakerLabel }}</a></div>
+      <div style="display:flex;gap:3px;align-items:flex-end;height:26px;background:#1c1815;border:1px solid #2e2822;border-radius:10px;padding:5px 10px">
+        <sc-for list="{{ meterBars }}" as="b" hint-placeholder-count="18">
+          <span style="flex:1;height:100%;background:{{ b.color }};border-radius:2px;transform-origin:bottom;animation:meterA {{ b.dur }} ease-in-out infinite;animation-delay:{{ b.delay }};animation-play-state:{{ meterPlay }}"></span>
+        </sc-for>
+      </div>
+    </div>
+    <button onClick="{{ joinNow }}" style="background:#f08b5f;color:#241209;border:none;border-radius:14px;padding:16px;font-weight:700;font-size:16.5px;cursor:pointer;font-family:inherit;box-shadow:0 8px 30px rgba(240,139,95,.2)" style-hover="background:#f59e77">{{ joinCta }}</button>
+    <button onClick="{{ goLanding }}" style="background:none;border:none;color:#8a7f70;font-size:13.5px;cursor:pointer;font-family:inherit" style-hover="color:#f4eee5">Cancel</button>
+  </div>
+</section>
+</sc-if>
+
+<!-- ============ WAITING ROOM ============ -->
+<sc-if value="{{ isWaiting }}" hint-placeholder-val="{{ false }}">
+<section data-screen-label="Waiting room" style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center;padding:32px">
+  <div style="display:flex;gap:8px">
+    <span style="width:10px;height:10px;border-radius:50%;background:#f08b5f;animation:breathe 1.8s ease-in-out infinite"></span>
+    <span style="width:10px;height:10px;border-radius:50%;background:#f08b5f;animation:breathe 1.8s ease-in-out .3s infinite"></span>
+    <span style="width:10px;height:10px;border-radius:50%;background:#f08b5f;animation:breathe 1.8s ease-in-out .6s infinite"></span>
+  </div>
+  <div>
+    <h1 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:30px;margin:0 0 8px">{{ lobbyMeetingTitle }}</h1>
+    <p style="color:#a3988a;font-size:15.5px;margin:0">{{ waitingLine }}</p>
+  </div>
+  <div style="position:relative;width:220px;aspect-ratio:16/10;background:#0e0c0a;border-radius:14px;overflow:hidden;border:1px solid #2e2822">
+    <sc-if value="{{ lobbyCamOn }}" hint-placeholder-val="{{ true }}"><img src="https://i.pravatar.cc/400?img=47" alt="" style="width:100%;height:100%;object-fit:cover;transform:scaleX(-1)"></sc-if>
+    <sc-if value="{{ lobbyCamOff }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><div style="width:48px;height:48px;border-radius:50%;background:#8a5a44;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;font-family:'Bricolage Grotesque',sans-serif">{{ lobbyInitials }}</div></div></sc-if>
+  </div>
+  <div style="display:flex;gap:10px">
+    <button onClick="{{ lobbyToggleMic }}" style="width:44px;height:44px;border-radius:50%;background:{{ lobbyMicBg }};border:1px solid {{ lobbyMicBorder }};color:#f4eee5;font-size:16px;cursor:pointer">{{ lobbyMicIcon }}</button>
+    <button onClick="{{ lobbyToggleCam }}" style="width:44px;height:44px;border-radius:50%;background:{{ lobbyCamBg }};border:1px solid {{ lobbyCamBorder }};color:#f4eee5;font-size:16px;cursor:pointer">{{ lobbyCamIcon }}</button>
+    <button onClick="{{ leaveWaiting }}" style="height:44px;border-radius:99px;background:none;border:1px solid #3a332b;color:#c9beb0;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;padding:0 18px" style-hover="color:#f4eee5">Leave</button>
+  </div>
+</section>
+</sc-if>
+
+<!-- ============ IN-MEETING ============ -->
+<sc-if value="{{ isMeeting }}" hint-placeholder-val="{{ false }}">
+<section data-screen-label="In-meeting room" onMouseMove="{{ wake }}" style="height:100vh;display:flex;flex-direction:column;background:#0e0c0a;overflow:hidden;position:relative">
+  <sc-if value="{{ youreIn }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:90;background:rgba(14,12,10,.85);animation:fadeUp .3s ease">
+      <div style="font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:40px">You're in <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#f08b5f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0;vertical-align:-4px"><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.7 1.8L21.5 17l-1.8.7L19 19.5l-.7-1.8L16.5 17z"/></svg></div>
+    </div>
+  </sc-if>
+  <!-- Top bar -->
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;position:absolute;top:0;left:0;right:0;z-index:20;background:linear-gradient(rgba(14,12,10,.85),transparent);opacity:{{ barsOp }};transition:opacity .4s;pointer-events:{{ barsPe }}">
+    <div style="display:flex;align-items:center;gap:14px">
+      <span style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:16px">{{ lobbyMeetingTitle }}</span>
+      <span style="color:#8a7f70;font-size:13.5px;font-variant-numeric:tabular-nums">{{ elapsed }}</span>
+      <sc-if value="{{ recording }}" hint-placeholder-val="{{ false }}">
+        <span style="display:flex;align-items:center;gap:6px;background:rgba(224,96,79,.15);border:1px solid rgba(224,96,79,.4);color:#e0836f;font-size:11.5px;font-weight:700;border-radius:99px;padding:4px 11px"><span style="width:7px;height:7px;border-radius:50%;background:#e0604f;animation:recBlink 1.4s infinite"></span>REC</span>
+      </sc-if>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <button onClick="{{ toggleView }}" style="background:#1e1a16;border:1px solid #2e2822;color:#c9beb0;border-radius:99px;padding:7px 14px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="color:#f4eee5">{{ viewLabel }}</button>
+      <button onClick="{{ toggleConnPop }}" title="Connection quality" style="background:none;border:none;color:{{ connColor }};font-size:15px;cursor:pointer;padding:7px;display:flex;align-items:flex-end;gap:2px"><span style="width:3px;height:5px;background:currentColor;border-radius:1px"></span><span style="width:3px;height:9px;background:currentColor;border-radius:1px"></span><span style="width:3px;height:13px;background:currentColor;border-radius:1px;opacity:{{ conn3op }}"></span></button>
+      <button onClick="{{ copyLink }}" title="Copy invite link" style="background:none;border:none;color:#a3988a;font-size:16px;cursor:pointer;padding:7px" style-hover="color:#f4eee5"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="M9 15 15 9"/><path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1"/></svg></button>
+      <sc-if value="{{ connPopOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;top:48px;right:60px;background:#241f1a;border:1px solid #3a332b;border-radius:14px;padding:16px;z-index:40;width:240px;box-shadow:0 12px 40px rgba(0,0,0,.5)">
+          <div style="font-weight:700;font-size:13.5px;margin-bottom:8px;color:{{ connColor }}">{{ connHeadline }}</div>
+          <div style="color:#a3988a;font-size:12.5px;line-height:1.7">Bitrate <span style="color:#f4eee5;float:right">{{ connBitrate }}</span><br>Latency <span style="color:#f4eee5;float:right">{{ connLatency }}</span><br>Packet loss <span style="color:#f4eee5;float:right">{{ connLoss }}</span></div>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+  <!-- Video area + side panel -->
+  <div style="flex:1;display:flex;min-height:0;padding:56px 12px 86px;gap:12px">
+    <div style="flex:1;min-width:0;position:relative">
+      <!-- Grid view -->
+      <sc-if value="{{ gridView }}" hint-placeholder-val="{{ true }}">
+        <div style="height:100%;display:grid;grid-template-columns:repeat({{ gridCols }},1fr);grid-auto-rows:1fr;gap:10px">
+          <sc-for list="{{ tiles }}" as="p" hint-placeholder-count="9">
+            <div style="position:relative;background:#17130f;border-radius:16px;overflow:hidden;min-height:0;box-shadow:{{ p.ring }};transition:box-shadow .3s">
+              <sc-if value="{{ p.camOn }}" hint-placeholder-val="{{ true }}"><img src="{{ p.img }}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if>
+              <sc-if value="{{ p.camOff }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#17130f"><div style="width:64px;height:64px;border-radius:50%;background:{{ p.color }};display:flex;align-items:center;justify-content:center;font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:22px">{{ p.initials }}</div></div></sc-if>
+              <div style="position:absolute;left:10px;bottom:10px;display:flex;align-items:center;gap:6px;max-width:75%">
+                <span style="background:rgba(14,12,10,.65);backdrop-filter:blur(4px);border-radius:8px;padding:4px 10px;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.label }}</span>
+                <sc-if value="{{ p.badge }}" hint-placeholder-val="{{ false }}"><span style="background:rgba(240,139,95,.2);color:#f0a97f;border-radius:6px;padding:3px 7px;font-size:10.5px;font-weight:700">{{ p.badge }}</span></sc-if>
+              </div>
+              <sc-if value="{{ p.muted }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;right:10px;bottom:10px;width:26px;height:26px;border-radius:50%;background:rgba(224,96,79,.9);display:flex;align-items:center;justify-content:center;font-size:12px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><line x1="2" y1="2" x2="22" y2="22"/><path d="M9 9v3a3 3 0 0 0 5.1 2.1"/><path d="M15 9.3V5a3 3 0 0 0-5.7-1.3"/><path d="M17 16.95A7 7 0 0 1 5 12v-2M19 10v2a7 7 0 0 1-.1 1"/><path d="M12 19v3"/></svg></span></sc-if>
+              <sc-if value="{{ p.hand }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;left:10px;top:10px;background:rgba(240,180,95,.92);color:#241209;border-radius:8px;padding:4px 9px;font-size:12px;font-weight:700"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0;vertical-align:-2px"><path d="M18 11V6a1.8 1.8 0 0 0-3.6 0M14.4 10V4.2a1.8 1.8 0 0 0-3.6 0v1.6M10.8 10.5V6a1.8 1.8 0 0 0-3.6 0v8"/><path d="M18 8.5a1.8 1.8 0 0 1 3.6 0V14a8 8 0 0 1-8 8h-1.5c-2.5 0-3.9-.8-5.3-2.2l-3.3-3.3a1.8 1.8 0 0 1 2.5-2.5L7.2 15"/></svg> {{ p.handQ }}</span></sc-if>
+              <div style="position:absolute;right:8px;top:8px;opacity:0;transition:opacity .15s" style-hover="opacity:1">
+                <button onClick="{{ p.pinToggle }}" title="Pin" style="background:rgba(14,12,10,.7);border:none;color:#f4eee5;border-radius:8px;padding:6px 9px;font-size:12px;cursor:pointer">{{ p.pinIcon }}</button>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+      <!-- Speaker view -->
+      <sc-if value="{{ speakerView }}" hint-placeholder-val="{{ false }}">
+        <div style="height:100%;display:flex;flex-direction:column;gap:10px;min-height:0">
+          <div style="display:flex;gap:8px;justify-content:center;flex-shrink:0">
+            <sc-for list="{{ strip }}" as="p" hint-placeholder-count="6">
+              <div onClick="{{ p.pinToggle }}" style="position:relative;width:128px;aspect-ratio:16/10;background:#17130f;border-radius:10px;overflow:hidden;cursor:pointer;box-shadow:{{ p.ring }};flex-shrink:0">
+                <sc-if value="{{ p.camOn }}" hint-placeholder-val="{{ true }}"><img src="{{ p.img }}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if>
+                <sc-if value="{{ p.camOff }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><div style="width:32px;height:32px;border-radius:50%;background:{{ p.color }};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;font-family:'Bricolage Grotesque',sans-serif">{{ p.initials }}</div></div></sc-if>
+                <span style="position:absolute;left:6px;bottom:6px;background:rgba(14,12,10,.65);border-radius:6px;padding:2px 7px;font-size:10.5px;font-weight:600;max-width:85%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.short }}</span>
+              </div>
+            </sc-for>
+            <sc-if value="{{ stripOverflow }}" hint-placeholder-val="{{ false }}">
+              <div style="width:64px;aspect-ratio:16/10;background:#1e1a16;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#8a7f70;font-weight:700;font-size:13px;flex-shrink:0">{{ stripOverflow }}</div>
+            </sc-if>
+          </div>
+          <div style="flex:1;position:relative;background:#17130f;border-radius:18px;overflow:hidden;min-height:0;box-shadow:{{ mainTile.ring }}">
+            <sc-if value="{{ mainTile.camOn }}" hint-placeholder-val="{{ true }}"><img src="{{ mainTile.imgBig }}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if>
+            <sc-if value="{{ mainTile.camOff }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><div style="width:110px;height:110px;border-radius:50%;background:{{ mainTile.color }};display:flex;align-items:center;justify-content:center;font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:38px">{{ mainTile.initials }}</div></div></sc-if>
+            <div style="position:absolute;left:14px;bottom:14px;display:flex;gap:8px;align-items:center">
+              <span style="background:rgba(14,12,10,.65);backdrop-filter:blur(4px);border-radius:9px;padding:6px 13px;font-size:14px;font-weight:600">{{ mainTile.label }}</span>
+              <sc-if value="{{ mainTile.badge }}" hint-placeholder-val="{{ false }}"><span style="background:rgba(240,139,95,.2);color:#f0a97f;border-radius:7px;padding:4px 9px;font-size:11px;font-weight:700">{{ mainTile.badge }}</span></sc-if>
+            </div>
+            <!-- draggable-ish self pip -->
+            <sc-if value="{{ selfPip }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;right:14px;bottom:14px;width:170px;aspect-ratio:16/10;border-radius:12px;overflow:hidden;border:1px solid #2e2822;background:#17130f">
+                <sc-if value="{{ selfCamOn }}" hint-placeholder-val="{{ true }}"><img src="https://i.pravatar.cc/340?img=47" alt="" style="width:100%;height:100%;object-fit:cover;transform:scaleX(-1)"></sc-if>
+                <sc-if value="{{ selfCamOffB }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center"><div style="width:40px;height:40px;border-radius:50%;background:#8a5a44;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;font-family:'Bricolage Grotesque',sans-serif">{{ lobbyInitials }}</div></div></sc-if>
+                <button onClick="{{ collapseSelf }}" style="position:absolute;right:6px;top:6px;background:rgba(14,12,10,.7);border:none;color:#a3988a;border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer" style-hover="color:#f4eee5">—</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ selfCollapsed }}" hint-placeholder-val="{{ false }}">
+              <button onClick="{{ collapseSelf }}" style="position:absolute;right:14px;bottom:14px;background:rgba(30,26,22,.9);border:1px solid #362f28;color:#c9beb0;border-radius:99px;padding:8px 15px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" style-hover="color:#f4eee5">Show self view</button>
+            </sc-if>
+          </div>
+        </div>
+      </sc-if>
+      <!-- Reconnecting overlay -->
+      <sc-if value="{{ reconnecting }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:30;background:rgba(36,31,26,.95);border:1px solid rgba(240,180,95,.4);border-radius:14px;padding:12px 20px;display:flex;align-items:center;gap:12px;box-shadow:0 12px 40px rgba(0,0,0,.5)">
+          <span style="width:16px;height:16px;border:2px solid rgba(240,180,95,.3);border-top-color:#e0b45f;border-radius:50%;animation:spin 1s linear infinite"></span>
+          <div><div style="font-weight:700;font-size:13.5px;color:#e0b45f">Reconnecting…</div><div style="color:#a3988a;font-size:12px">Hang tight — we're getting you back.</div></div>
+        </div>
+      </sc-if>
+      <!-- Muted nudge -->
+      <sc-if value="{{ mutedNudge }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;left:50%;bottom:16px;transform:translateX(-50%);z-index:30;background:#241f1a;border:1px solid rgba(240,139,95,.5);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:14px;box-shadow:0 12px 40px rgba(0,0,0,.5);animation:fadeUp .25s ease">
+          <span style="display:inline-flex;color:#f0a97f"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><line x1="2" y1="2" x2="22" y2="22"/><path d="M9 9v3a3 3 0 0 0 5.1 2.1"/><path d="M15 9.3V5a3 3 0 0 0-5.7-1.3"/><path d="M17 16.95A7 7 0 0 1 5 12v-2M19 10v2a7 7 0 0 1-.1 1"/><path d="M12 19v3"/></svg></span>
+          <div style="font-size:13.5px"><span style="font-weight:700">Trying to say something?</span> <span style="color:#a3988a">You're muted.</span></div>
+          <button onClick="{{ toggleMic }}" style="background:#f08b5f;color:#241209;border:none;border-radius:9px;padding:8px 15px;font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit">Unmute</button>
+          <button onClick="{{ dismissNudge }}" style="background:none;border:none;color:#6f665b;font-size:14px;cursor:pointer;padding:2px" style-hover="color:#f4eee5"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </div>
+      </sc-if>
+      <!-- Reaction bursts -->
+      <sc-for list="{{ bursts }}" as="b" hint-placeholder-count="0">
+        <span style="position:absolute;left:{{ b.x }};bottom:60px;font-size:34px;animation:floatUp 3.5s ease-out forwards;pointer-events:none;z-index:35">{{ b.emoji }}</span>
+      </sc-for>
+    </div>
+    <!-- Side panel -->
+    <sc-if value="{{ panelOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="width:340px;flex-shrink:0;background:#1a1613;border:1px solid #2a241e;border-radius:18px;display:flex;flex-direction:column;overflow:hidden;animation:fadeUp .25s ease">
+        <div style="display:flex;padding:10px 10px 0;gap:4px">
+          <button onClick="{{ openChat }}" style="flex:1;background:{{ chatTabBg }};color:{{ chatTabFg }};border:none;border-radius:10px;padding:10px;font-weight:600;font-size:13.5px;cursor:pointer;font-family:inherit">Chat</button>
+          <button onClick="{{ openPeople }}" style="flex:1;background:{{ peopleTabBg }};color:{{ peopleTabFg }};border:none;border-radius:10px;padding:10px;font-weight:600;font-size:13.5px;cursor:pointer;font-family:inherit">People · {{ peopleCount }}</button>
+          <button onClick="{{ closePanel }}" style="background:none;border:none;color:#6f665b;font-size:15px;cursor:pointer;padding:0 10px" style-hover="color:#f4eee5"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </div>
+        <sc-if value="{{ chatTab }}" hint-placeholder-val="{{ true }}">
+          <div style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px">
+            <div style="text-align:center;color:#6f665b;font-size:11.5px;padding:4px 0">Messages disappear when the meeting ends</div>
+            <sc-for list="{{ messages }}" as="m" hint-placeholder-count="3">
+              <div style="display:flex;flex-direction:column;gap:3px;align-items:{{ m.align }}">
+                <div style="font-size:11.5px;color:#8a7f70;font-weight:600">{{ m.who }}</div>
+                <div style="background:{{ m.bg }};color:{{ m.fg }};border-radius:14px;padding:9px 13px;font-size:13.5px;line-height:1.45;max-width:85%">{{ m.text }}</div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="padding:12px;border-top:1px solid #2a241e;display:flex;gap:8px">
+            <input value="{{ chatInput }}" onChange="{{ onChatInput }}" onKeyDown="{{ chatKey }}" placeholder="Message everyone…" style="flex:1;background:#1c1815;border:1px solid #3a332b;border-radius:11px;padding:11px 13px;color:#f4eee5;font-size:13.5px;font-family:inherit;outline:none" style-focus="border-color:#f08b5f">
+            <button onClick="{{ sendChat }}" style="background:#f08b5f;color:#241209;border:none;border-radius:11px;padding:0 16px;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="M12 20V5M6 11l6-6 6 6"/></svg></button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ peopleTab }}" hint-placeholder-val="{{ false }}">
+          <div style="flex:1;overflow-y:auto;padding:14px">
+            <sc-if value="{{ waitingGuest }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-bottom:16px">
+                <div style="font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#f0a97f;margin-bottom:8px">Waiting room · 1</div>
+                <div style="display:flex;align-items:center;gap:10px;background:rgba(240,139,95,.08);border:1px solid rgba(240,139,95,.25);border-radius:12px;padding:10px 12px">
+                  <span style="width:30px;height:30px;border-radius:50%;background:#5a8a5a;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;font-family:'Bricolage Grotesque',sans-serif">LB</span>
+                  <span style="flex:1;font-size:13.5px;font-weight:600">Leila Boum</span>
+                  <button onClick="{{ admitGuest }}" style="background:#f08b5f;color:#241209;border:none;border-radius:8px;padding:7px 13px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">Admit</button>
+                  <button onClick="{{ denyGuest }}" style="background:none;border:1px solid #3a332b;color:#a3988a;border-radius:8px;padding:7px 11px;font-weight:600;font-size:12px;cursor:pointer;font-family:inherit">Deny</button>
+                </div>
+              </div>
+            </sc-if>
+            <div style="font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8a7f70;margin-bottom:8px">In meeting · {{ peopleCount }}</div>
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <sc-for list="{{ peopleRows }}" as="p" hint-placeholder-count="8">
+                <div style="display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:10px" style-hover="background:#211c18">
+                  <img src="{{ p.imgSm }}" alt="" style="width:30px;height:30px;border-radius:50%;background:{{ p.color }}">
+                  <div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.label }}</div><sc-if value="{{ p.badge }}" hint-placeholder-val="{{ false }}"><div style="font-size:10.5px;color:#f0a97f;font-weight:700">{{ p.badge }}</div></sc-if></div>
+                  <span style="color:{{ p.micColor }};font-size:13px">{{ p.micIcon }}</span>
+                  <sc-if value="{{ isHostRole }}" hint-placeholder-val="{{ false }}"><button onClick="{{ p.hostMute }}" title="Host actions" style="background:none;border:none;color:#6f665b;font-size:14px;cursor:pointer;padding:3px" style-hover="color:#f4eee5"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button></sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <sc-if value="{{ isHostRole }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:12px;border-top:1px solid #2a241e;display:flex;gap:8px">
+              <button onClick="{{ muteAll }}" style="flex:1;background:#241f1a;border:1px solid #362f28;color:#f4eee5;border-radius:10px;padding:10px;font-weight:600;font-size:12.5px;cursor:pointer;font-family:inherit" style-hover="background:#2a241e">Mute all</button>
+              <button onClick="{{ toggleLock }}" style="flex:1;background:{{ lockBg }};border:1px solid {{ lockBorder }};color:{{ lockFg }};border-radius:10px;padding:10px;font-weight:600;font-size:12.5px;cursor:pointer;font-family:inherit">{{ lockLabel }}</button>
+            </div>
+          </sc-if>
+        </sc-if>
+      </div>
+    </sc-if>
+  </div>
+  <!-- Bottom control bar -->
+  <div style="position:absolute;bottom:0;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:10px;padding:14px 20px 18px;z-index:20;background:linear-gradient(transparent,rgba(14,12,10,.9));opacity:{{ barsOp }};transition:opacity .4s;pointer-events:{{ barsPe }}">
+    <button onClick="{{ toggleMic }}" title="Mute (M)" style="height:50px;min-width:58px;border-radius:14px;background:{{ micBtnBg }};border:1px solid {{ micBtnBorder }};color:#f4eee5;font-size:19px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:2px">{{ micBtnIcon }}<span style="font-size:10px;color:#8a7f70;align-self:flex-end;padding-bottom:6px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="m6 9 6 6 6-6"/></svg></span></button>
+    <button onClick="{{ toggleCam }}" title="Camera (V)" style="height:50px;min-width:58px;border-radius:14px;background:{{ camBtnBg }};border:1px solid {{ camBtnBorder }};color:#f4eee5;font-size:19px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:2px">{{ camBtnIcon }}<span style="font-size:10px;color:#8a7f70;align-self:flex-end;padding-bottom:6px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="m6 9 6 6 6-6"/></svg></span></button>
+    <button onClick="{{ toggleShare }}" title="Share screen" style="height:50px;min-width:58px;border-radius:14px;background:{{ shareBtnBg }};border:1px solid {{ shareBtnBorder }};color:{{ shareBtnFg }};font-size:18px;cursor:pointer"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><path d="m9.5 10 2.5-2.5L14.5 10M12 7.5V13"/></svg></button>
+    <div style="position:relative">
+      <button onClick="{{ toggleReactions }}" title="Reactions" style="height:50px;min-width:58px;border-radius:14px;background:{{ reactBtnBg }};border:1px solid #2e2822;color:#f4eee5;font-size:18px;cursor:pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="M18 11V6a1.8 1.8 0 0 0-3.6 0M14.4 10V4.2a1.8 1.8 0 0 0-3.6 0v1.6M10.8 10.5V6a1.8 1.8 0 0 0-3.6 0v8"/><path d="M18 8.5a1.8 1.8 0 0 1 3.6 0V14a8 8 0 0 1-8 8h-1.5c-2.5 0-3.9-.8-5.3-2.2l-3.3-3.3a1.8 1.8 0 0 1 2.5-2.5L7.2 15"/></svg></button>
+      <sc-if value="{{ reactionsOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;bottom:60px;left:50%;transform:translateX(-50%);background:#241f1a;border:1px solid #3a332b;border-radius:16px;padding:10px;display:flex;flex-direction:column;gap:8px;box-shadow:0 12px 40px rgba(0,0,0,.5);z-index:40">
+          <button onClick="{{ toggleHand }}" style="background:{{ handBg }};border:1px solid {{ handBorder }};color:#f4eee5;border-radius:10px;padding:9px 14px;font-weight:600;font-size:13px;cursor:pointer;font-family:inherit;white-space:nowrap">{{ handLabel }}</button>
+          <div style="display:flex;gap:6px">
+            <sc-for list="{{ emojis }}" as="e" hint-placeholder-count="5">
+              <button onClick="{{ e.send }}" style="background:none;border:none;font-size:22px;cursor:pointer;padding:4px;border-radius:8px" style-hover="background:#2e2822">{{ e.char }}</button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+    <div style="position:relative">
+      <button onClick="{{ openChatToggle }}" title="Chat (C)" style="height:50px;min-width:58px;border-radius:14px;background:{{ chatBtnBg }};border:1px solid #2e2822;color:#f4eee5;font-size:18px;cursor:pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg></button>
+      <sc-if value="{{ unreadBadge }}" hint-placeholder-val="{{ false }}"><span style="position:absolute;top:-5px;right:-5px;background:#f08b5f;color:#241209;font-size:11px;font-weight:800;border-radius:99px;min-width:20px;height:20px;display:flex;align-items:center;justify-content:center;padding:0 5px">{{ unreadBadge }}</span></sc-if>
+    </div>
+    <div style="position:relative">
+      <button onClick="{{ openPeopleToggle }}" title="People (P)" style="height:50px;min-width:58px;border-radius:14px;background:{{ peopleBtnBg }};border:1px solid #2e2822;color:#f4eee5;font-size:18px;cursor:pointer;animation:{{ peopleBtnAnim }}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></button>
+      <span style="position:absolute;top:-5px;right:-5px;background:#2e2822;color:#c9beb0;font-size:11px;font-weight:700;border-radius:99px;min-width:20px;height:20px;display:flex;align-items:center;justify-content:center;padding:0 5px">{{ peopleCount }}</span>
+    </div>
+    <div style="position:relative">
+      <button onClick="{{ toggleMore }}" title="More" style="height:50px;min-width:58px;border-radius:14px;background:{{ moreBtnBg }};border:1px solid #2e2822;color:#f4eee5;font-size:18px;cursor:pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+      <sc-if value="{{ moreOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;bottom:60px;right:0;background:#241f1a;border:1px solid #3a332b;border-radius:14px;padding:6px;min-width:230px;box-shadow:0 12px 40px rgba(0,0,0,.5);z-index:40">
+          <sc-for list="{{ moreItems }}" as="i" hint-placeholder-count="5">
+            <button onClick="{{ i.go }}" style="display:block;width:100%;text-align:left;background:none;border:none;color:{{ i.color }};padding:10px 13px;font-size:13.5px;font-weight:500;border-radius:9px;cursor:pointer;font-family:inherit" style-hover="background:#2e2822">{{ i.label }}</button>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+    <div style="width:22px"></div>
+    <div style="position:relative">
+      <button onClick="{{ toggleLeave }}" style="height:50px;border-radius:14px;background:#c94a38;border:none;color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;font-family:inherit;padding:0 24px" style-hover="background:#d95845">Leave</button>
+      <sc-if value="{{ leaveOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;bottom:60px;right:0;background:#241f1a;border:1px solid #3a332b;border-radius:16px;padding:16px;width:260px;box-shadow:0 12px 40px rgba(0,0,0,.5);z-index:40">
+          <sc-if value="{{ isHostRole }}" hint-placeholder-val="{{ false }}">
+            <div style="font-weight:700;font-size:14px;margin-bottom:4px">Heading out?</div>
+            <div style="color:#a3988a;font-size:12.5px;line-height:1.5;margin-bottom:12px">You're the host — pick someone to hand the keys to, or end it for everyone.</div>
+            <button onClick="{{ leaveAsHost }}" style="display:block;width:100%;background:#2a241e;border:1px solid #3a332b;color:#f4eee5;border-radius:10px;padding:11px;font-weight:600;font-size:13px;cursor:pointer;font-family:inherit;margin-bottom:8px" style-hover="background:#332c25">Leave — make Amara host</button>
+            <button onClick="{{ endForAll }}" style="display:block;width:100%;background:rgba(224,96,79,.12);border:1px solid rgba(224,96,79,.4);color:#e0836f;border-radius:10px;padding:11px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit" style-hover="background:rgba(224,96,79,.2)">End meeting for all · {{ peopleCount }} people</button>
+          </sc-if>
+          <sc-if value="{{ isGuestRole }}" hint-placeholder-val="{{ false }}">
+            <div style="font-weight:700;font-size:14px;margin-bottom:10px">Leave the meeting?</div>
+            <button onClick="{{ confirmLeave }}" style="display:block;width:100%;background:#c94a38;border:none;color:#fff;border-radius:10px;padding:11px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;margin-bottom:8px">Yes, leave</button>
+            <button onClick="{{ toggleLeave }}" style="display:block;width:100%;background:none;border:1px solid #3a332b;color:#c9beb0;border-radius:10px;padding:10px;font-weight:600;font-size:13px;cursor:pointer;font-family:inherit">Stay</button>
+          </sc-if>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+  <!-- Sharing pill -->
+  <sc-if value="{{ sharing }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;top:56px;left:50%;transform:translateX(-50%);z-index:30;background:#241f1a;border:1px solid rgba(111,191,143,.4);border-radius:99px;padding:9px 10px 9px 18px;display:flex;align-items:center;gap:14px;box-shadow:0 12px 40px rgba(0,0,0,.5)">
+      <span style="font-size:13px;color:#6fbf8f;font-weight:600">You're sharing your screen</span>
+      <button onClick="{{ toggleShare }}" style="background:#c94a38;border:none;color:#fff;border-radius:99px;padding:8px 16px;font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit">Stop sharing</button>
+    </div>
+  </sc-if>
+  <!-- Recording banner -->
+  <sc-if value="{{ recBanner }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;top:56px;left:50%;transform:translateX(-50%);z-index:31;background:rgba(224,96,79,.13);border:1px solid rgba(224,96,79,.45);border-radius:14px;padding:11px 18px;font-size:13.5px;font-weight:600;color:#e0836f;animation:fadeUp .25s ease"><svg width="14" height="14" viewBox="0 0 24 24" fill="#e0836f" stroke="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0;vertical-align:-2px"><circle cx="12" cy="12" r="6"/></svg> {{ recBanner }}</div>
+  </sc-if>
+  <!-- Toasts -->
+  <div style="position:absolute;left:18px;bottom:92px;display:flex;flex-direction:column;gap:8px;z-index:36">
+    <sc-for list="{{ toasts }}" as="t" hint-placeholder-count="0">
+      <div style="background:#241f1a;border:1px solid #3a332b;border-radius:12px;padding:11px 15px;font-size:13px;box-shadow:0 8px 30px rgba(0,0,0,.4);animation:fadeUp .25s ease;display:flex;align-items:center;gap:12px;max-width:320px">
+        <span>{{ t.text }}</span>
+        <sc-if value="{{ t.admit }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ admitGuest }}" style="background:#f08b5f;color:#241209;border:none;border-radius:8px;padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">Admit</button>
+          <button onClick="{{ denyGuest }}" style="background:none;border:1px solid #3a332b;color:#a3988a;border-radius:8px;padding:6px 10px;font-weight:600;font-size:12px;cursor:pointer;font-family:inherit">Deny</button>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+  <!-- Shortcuts overlay -->
+  <sc-if value="{{ shortcutsOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeShortcuts }}" style="position:absolute;inset:0;background:rgba(10,8,6,.7);display:flex;align-items:center;justify-content:center;z-index:60">
+      <div onClick="{{ stop }}" style="background:#241f1a;border:1px solid #3a332b;border-radius:20px;padding:28px;width:380px">
+        <h3 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:19px;margin:0 0 16px">Keyboard shortcuts</h3>
+        <div style="display:flex;flex-direction:column;gap:10px;font-size:13.5px;color:#c9beb0">
+          <sc-for list="{{ shortcuts }}" as="s" hint-placeholder-count="7">
+            <div style="display:flex;justify-content:space-between"><span>{{ s.what }}</span><span style="background:#1c1815;border:1px solid #362f28;border-radius:6px;padding:2px 9px;font-family:monospace;font-size:12px;color:#f0a97f">{{ s.key }}</span></div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</section>
+</sc-if>
+
+<!-- ============ POST MEETING ============ -->
+<sc-if value="{{ isPost }}" hint-placeholder-val="{{ false }}">
+<section data-screen-label="Post-meeting" style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;text-align:center;padding:32px">
+  <div>
+    <h1 style="font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:38px;margin:0 0 8px">{{ postHeadline }}</h1>
+    <p style="color:#a3988a;font-size:15.5px;margin:0">{{ postSub }}</p>
+  </div>
+  <div style="display:flex;gap:12px">
+    <sc-if value="{{ canRejoin }}" hint-placeholder-val="{{ true }}">
+      <button onClick="{{ rejoin }}" style="background:#f08b5f;color:#241209;border:none;border-radius:13px;padding:14px 30px;font-weight:700;font-size:15.5px;cursor:pointer;font-family:inherit" style-hover="background:#f59e77">Rejoin</button>
+    </sc-if>
+    <button onClick="{{ goDash }}" style="background:#241f1a;border:1px solid #362f28;color:#f4eee5;border-radius:13px;padding:14px 26px;font-weight:600;font-size:15px;cursor:pointer;font-family:inherit" style-hover="background:#2a241e">Back to home</button>
+  </div>
+  <div style="background:#1e1a16;border:1px solid #2e2822;border-radius:18px;padding:22px 28px;width:360px">
+    <div style="font-size:13.5px;font-weight:600;color:#c9beb0;margin-bottom:12px">How was the call quality?</div>
+    <div style="display:flex;justify-content:center;gap:6px;margin-bottom:14px">
+      <sc-for list="{{ stars }}" as="s" hint-placeholder-count="5">
+        <button onClick="{{ s.rate }}" style="background:none;border:none;font-size:26px;cursor:pointer;color:{{ s.color }};padding:2px"><svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" stroke="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0"><path d="m12 3 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg></button>
+      </sc-for>
+    </div>
+    <sc-if value="{{ ratedLow }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
+        <sc-for list="{{ issueChips }}" as="c" hint-placeholder-count="3">
+          <button onClick="{{ c.toggle }}" style="background:{{ c.bg }};border:1px solid {{ c.border }};color:{{ c.fg }};border-radius:99px;padding:6px 14px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit">{{ c.label }}</button>
+        </sc-for>
+      </div>
+    </sc-if>
+    <sc-if value="{{ ratedThanks }}" hint-placeholder-val="{{ false }}"><div style="color:#6fbf8f;font-size:13px;font-weight:600">Thanks — that helps us a lot</div></sc-if>
+    <div style="margin-top:10px"><a href="#" onClick="{{ skipRating }}" style="font-size:12px;color:#6f665b">Skip</a></div>
+  </div>
+  <div style="color:#6f665b;font-size:13px">That was <span style="color:#a3988a;font-weight:600">{{ elapsed }}</span> well spent.</div>
+</section>
+</sc-if>
+
+<!-- Prototype screen switcher -->
+<div style="position:fixed;right:16px;bottom:16px;z-index:100;display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+  <sc-if value="{{ protoOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="background:#241f1a;border:1px solid #3a332b;border-radius:14px;padding:6px;box-shadow:0 12px 40px rgba(0,0,0,.55);display:flex;flex-direction:column;min-width:190px">
+      <div style="font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#6f665b;padding:8px 12px 4px">Jump to screen</div>
+      <sc-for list="{{ protoScreens }}" as="s" hint-placeholder-count="8">
+        <button onClick="{{ s.go }}" style="display:block;text-align:left;background:{{ s.bg }};border:none;color:{{ s.fg }};padding:8px 12px;font-size:13px;font-weight:500;border-radius:8px;cursor:pointer;font-family:inherit" style-hover="background:#2e2822">{{ s.label }}</button>
+      </sc-for>
+    </div>
+  </sc-if>
+  <button onClick="{{ toggleProto }}" title="Prototype map" style="width:40px;height:40px;border-radius:50%;background:#241f1a;border:1px solid #3a332b;color:#8a7f70;font-size:15px;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.4)" style-hover="color:#f4eee5"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;role&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;host&quot;,&quot;guest&quot;],&quot;default&quot;:&quot;host&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Prototype&quot;},&quot;participantCount&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;min&quot;:2,&quot;max&quot;:10,&quot;step&quot;:1,&quot;default&quot;:10,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Prototype&quot;},&quot;waitingRoom&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Prototype&quot;}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.videoRef = React.createRef();
+    this.state = {
+      screen: 'landing', authMode: 'signup', email: '', emailInvalid: false, authStep: 'form',
+      code: '', codeInvalid: false,
+      newMenuOpen: false, joinModal: false, settingsTab: 'profile', optionsOpen: false,
+      schedTitle: '', copied: false, clock: '', dateStr: '',
+      schedOpts: [true, false, false, true], avOpts: [true, false, true], notifOpts: [true, true],
+      // lobby
+      permState: 'prompt', realCam: false, lobbyName: 'Maya Chen', lobbyMic: true, lobbyCam: true, speakerTesting: false,
+      // meeting
+      view: 'grid', micMuted: false, camOff: false, sharing: false, hand: false,
+      panel: null, tab: 'chat', reactionsOpen: false, moreOpen: false, leaveOpen: false, connPop: false,
+      recording: false, recBanner: null, reconnecting: false, locked: false, shortcutsOpen: false,
+      pinned: null, selfCollapsed: false, activeIdx: 1, bars: true, youreIn: false,
+      elapsedS: 0, unread: 0, chatInput: '', mutedNudge: false, nudgeShown: false,
+      waitingGuest: false, admitted: false, mutedAll: false,
+      messages: [
+        { who: 'Amara Okafor', text: 'agenda is in the doc from last week', mine: false },
+        { who: 'Priya Nair', text: 'can everyone see my notes on the side?', mine: false },
+        { who: 'You', text: 'yep, looks good!', mine: true }
+      ],
+      bursts: [], toasts: [], rating: 0, issues: [], ratedDone: false,
+      postKind: 'left', protoOpen: false
+    };
+    this._t = {};
+  }
+  get role() { return this.props.role || 'host'; }
+  get pCount() { return Math.max(2, Math.min(10, this.props.participantCount || 10)); }
+  get waitingRoomOn() { return this.props.waitingRoom !== false; }
+  get ICONS() { return {"mail":"<rect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\"/><path d=\"m2 7 10 6 10-6\"/>","home":"<path d=\"m3 10 9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z\"/>","grid":"<rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/>","disc":"<circle cx=\"12\" cy=\"12\" r=\"9\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>","gear":"<circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z\"/>","video":"<path d=\"m16 10 4.55-2.28A1 1 0 0 1 22 8.6v6.8a1 1 0 0 1-1.45.9L16 14\"/><rect x=\"2\" y=\"6\" width=\"14\" height=\"12\" rx=\"2\"/>","videoOff":"<path d=\"M10.66 6H14a2 2 0 0 1 2 2v2.34l1 1L22 8v8\"/><path d=\"M16 16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2\"/><line x1=\"2\" y1=\"2\" x2=\"22\" y2=\"22\"/>","arrowRight":"<path d=\"M5 12h14\"/><path d=\"m13 6 6 6-6 6\"/>","arrowLeft":"<path d=\"M19 12H5\"/><path d=\"m11 6-6 6 6 6\"/>","calendar":"<rect x=\"3\" y=\"4\" width=\"18\" height=\"17\" rx=\"2\"/><path d=\"M16 2v4M8 2v4M3 10h18\"/>","check":"<path d=\"M20 6 9 17l-5-5\"/>","play":"<path d=\"M6 4v16l14-8z\"/>","lock":"<rect x=\"4\" y=\"11\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 11V7a4 4 0 0 1 8 0v4\"/>","camera":"<path d=\"M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z\"/><circle cx=\"12\" cy=\"13\" r=\"3.5\"/>","sparkles":"<path d=\"m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z\"/><path d=\"M19 15l.7 1.8L21.5 17l-1.8.7L19 19.5l-.7-1.8L16.5 17z\"/>","link":"<path d=\"M9 15 15 9\"/><path d=\"M11 6l1-1a4 4 0 0 1 6 6l-1 1\"/><path d=\"M13 18l-1 1a4 4 0 0 1-6-6l1-1\"/>","micOff":"<line x1=\"2\" y1=\"2\" x2=\"22\" y2=\"22\"/><path d=\"M9 9v3a3 3 0 0 0 5.1 2.1\"/><path d=\"M15 9.3V5a3 3 0 0 0-5.7-1.3\"/><path d=\"M17 16.95A7 7 0 0 1 5 12v-2M19 10v2a7 7 0 0 1-.1 1\"/><path d=\"M12 19v3\"/>","mic":"<rect x=\"9\" y=\"3\" width=\"6\" height=\"11\" rx=\"3\"/><path d=\"M5 11a7 7 0 0 0 14 0M12 18v4\"/>","hand":"<path d=\"M18 11V6a1.8 1.8 0 0 0-3.6 0M14.4 10V4.2a1.8 1.8 0 0 0-3.6 0v1.6M10.8 10.5V6a1.8 1.8 0 0 0-3.6 0v8\"/><path d=\"M18 8.5a1.8 1.8 0 0 1 3.6 0V14a8 8 0 0 1-8 8h-1.5c-2.5 0-3.9-.8-5.3-2.2l-3.3-3.3a1.8 1.8 0 0 1 2.5-2.5L7.2 15\"/>","close":"<path d=\"M18 6 6 18M6 6l12 12\"/>","send":"<path d=\"M12 20V5M6 11l6-6 6 6\"/>","chevronDown":"<path d=\"m6 9 6 6 6-6\"/>","chevronUp":"<path d=\"m6 15 6-6 6 6\"/>","share":"<rect x=\"3\" y=\"4\" width=\"18\" height=\"13\" rx=\"2\"/><path d=\"M8 21h8M12 17v4\"/><path d=\"m9.5 10 2.5-2.5L14.5 10M12 7.5V13\"/>","users":"<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75\"/>","user":"<path d=\"M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2\"/><circle cx=\"12\" cy=\"7\" r=\"4\"/>","chat":"<path d=\"M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z\"/>","more":"<circle cx=\"5\" cy=\"12\" r=\"1.6\"/><circle cx=\"12\" cy=\"12\" r=\"1.6\"/><circle cx=\"19\" cy=\"12\" r=\"1.6\"/>","star":"<path d=\"m12 3 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z\"/>","square":"<rect x=\"6\" y=\"6\" width=\"12\" height=\"12\" rx=\"2\"/>","record":"<circle cx=\"12\" cy=\"12\" r=\"6\"/>","keyboard":"<rect x=\"2\" y=\"5\" width=\"20\" height=\"14\" rx=\"2\"/><path d=\"M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M18 13h.01M8 16h8M11 13h2\"/>","fullscreen":"<path d=\"M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3\"/>","wifiOff":"<line x1=\"2\" y1=\"2\" x2=\"22\" y2=\"22\"/><path d=\"M8.5 16.4a5 5 0 0 1 7 0M2 8.8a15 15 0 0 1 4.2-2.6M12 20h.01M16.7 13.3A9 9 0 0 0 22 8.8\"/><path d=\"M5 12.5a10 10 0 0 1 3-1.8\"/>","flag":"<path d=\"M4 15s1-1 4-1 5 2 8 2 4-1 4-1V4s-1 1-4 1-5-2-8-2-4 1-4 1z\"/><line x1=\"4\" y1=\"22\" x2=\"4\" y2=\"15\"/>","thumbsUp":"<path d=\"M7 10v11H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1z\"/><path d=\"M7 10l4-7a2 2 0 0 1 3 1.7V9h5a2 2 0 0 1 2 2.3l-1.3 7A2 2 0 0 1 17.7 20H7z\"/>","heart":"<path d=\"M12 20s-7-4.6-9.5-9A4.5 4.5 0 0 1 12 6a4.5 4.5 0 0 1 9.5 5c-2.5 4.4-9.5 9-9.5 9z\"/>","laugh":"<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M8 13a4 4 0 0 0 8 0zM9 9h.01M15 9h.01\"/>","party":"<path d=\"M4 20 9 8l7 7z\"/><path d=\"M14 5a3 3 0 0 1 3 3M18 3a5 5 0 0 1 3 3M13 11l2-2M17 14l2-1\"/>","clap":"<path d=\"M11 11 8.5 6.5a1.5 1.5 0 0 1 2.6-1.5L14 9\"/><path d=\"M20 13a7 7 0 0 1-7 7 7 7 0 0 1-6-3.5L4.5 12a1.5 1.5 0 0 1 2.6-1.5L9 14\"/><path d=\"M4 4l1 1M8 2v2M14 4l-1 1\"/>","pin":"<path d=\"M12 17v5\"/><path d=\"M9 3h6l-1 6 3 3v2H7v-2l3-3z\"/>","speaker":"<path d=\"M11 5 6 9H2v6h4l5 4z\"/><path d=\"M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13\"/>"}; }
+  ic(name, size, color) { var F={play:1,star:1,more:1,record:1,square:1}; var fill=F[name]; var s=size||20; var c=color||"currentColor"; var m='<svg width="'+s+'" height="'+s+'" viewBox="0 0 24 24" fill="'+(fill?c:"none")+'" stroke="'+(fill?"none":c)+'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">'+this.ICONS[name]+'</svg>'; return React.createElement("span", { style:{display:"inline-flex",alignItems:"center",justifyContent:"center"}, dangerouslySetInnerHTML:{__html:m} }); }
+  lbl(name, text, size) { return React.createElement("span", { style:{display:"inline-flex",alignItems:"center",gap:"8px"} }, this.ic(name, size||16), text); }
+  roster() {
+    const R = [
+      { n: 'Maya Chen', img: 47, cam: true, mute: false, you: true },
+      { n: 'Amara Okafor', img: 49, cam: true, mute: false, alt: true },
+      { n: 'Jonas Berg', img: 12, cam: true, mute: true },
+      { n: 'Priya Nair', img: 26, cam: true, mute: false },
+      { n: 'Diego Ramos', img: 60, cam: false, mute: false },
+      { n: 'Nkechi Eze', img: 24, cam: true, mute: false, hand: true },
+      { n: 'Tom Alvarez', img: 59, cam: true, mute: true },
+      { n: 'Sofia Lindqvist', img: 45, cam: true, mute: false },
+      { n: 'Ravi Patel', img: 68, cam: false, mute: true },
+      { n: 'Hana Kim', img: 44, cam: true, mute: false }
+    ].slice(0, this.pCount);
+    if (this.state.admitted) R.push({ n: 'Leila Boum', img: 32, cam: true, mute: false });
+    return R;
+  }
+  componentDidMount() {
+    this._t.clock = setInterval(() => {
+      const d = new Date();
+      this.setState({
+        clock: d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+        dateStr: d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
+      });
+      if (this.state.screen === 'meeting') this.setState(s => ({ elapsedS: s.elapsedS + 1 }));
+    }, 1000);
+    this._t.speaker = setInterval(() => {
+      if (this.state.screen !== 'meeting' || this.state.reconnecting) return;
+      const talkers = this.roster().map((p, i) => ({ p, i })).filter(x => !x.p.mute || x.p.you).map(x => x.i);
+      const next = talkers[Math.floor(Math.random() * talkers.length)];
+      this.setState({ activeIdx: next });
+      if (next === 0 && this.state.micMuted && !this.state.nudgeShown) this.setState({ mutedNudge: true, nudgeShown: true });
+    }, 3200);
+    this._key = (e) => {
+      if (this.state.screen !== 'meeting') return;
+      const tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      const k = e.key.toLowerCase();
+      if (k === 'm') this.toggleMic();
+      else if (k === 'v') this.toggleCam();
+      else if (k === 'c') this.togglePanel('chat');
+      else if (k === 'p') this.togglePanel('people');
+      else if (k === 'escape') this.setState({ panel: null, reactionsOpen: false, moreOpen: false, leaveOpen: false, shortcutsOpen: false, connPop: false });
+    };
+    window.addEventListener('keydown', this._key);
+  }
+  componentWillUnmount() {
+    Object.values(this._t).forEach(clearInterval);
+    window.removeEventListener('keydown', this._key);
+    if (this.stream) this.stream.getTracks().forEach(t => t.stop());
+  }
+  componentDidUpdate() {
+    if (this.stream && this.videoRef.current && this.videoRef.current.srcObject !== this.stream) {
+      this.videoRef.current.srcObject = this.stream;
+    }
+  }
+  go(screen, extra) { this.setState(Object.assign({ screen: screen, protoOpen: false, newMenuOpen: false }, extra || {})); }
+  toast(text, opts) {
+    const id = Math.random();
+    const t = Object.assign({ id: id, text: text }, opts || {});
+    this.setState(s => ({ toasts: s.toasts.concat([t]) }));
+    setTimeout(() => this.setState(s => ({ toasts: s.toasts.filter(x => x.id !== id) })), opts && opts.sticky ? 12000 : 4000);
+  }
+  toggleMic = () => {
+    this.setState(s => ({ micMuted: !s.micMuted, mutedNudge: false }));
+  }
+  toggleCam = () => this.setState(s => ({ camOff: !s.camOff }));
+  togglePanel(tab) {
+    this.setState(s => ({
+      panel: s.panel && s.tab === tab ? null : 'open', tab: tab,
+      unread: tab === 'chat' ? 0 : s.unread
+    }));
+  }
+  enterMeeting() {
+    this.setState({ screen: 'meeting', youreIn: true, elapsedS: 0, panel: null, micMuted: !this.state.lobbyMic, camOff: !this.state.lobbyCam });
+    setTimeout(() => this.setState({ youreIn: false }), 1400);
+    setTimeout(() => {
+      if (this.state.screen !== 'meeting') return;
+      this.setState(s => ({ messages: s.messages.concat([{ who: 'Hana Kim', text: 'running 2 min late, start without me!', mine: false }]), unread: s.panel && s.tab === 'chat' ? 0 : s.unread + 1 }));
+      if (!(this.state.panel && this.state.tab === 'chat')) this.toast('Hana Kim: running 2 min late…');
+    }, 9000);
+    if (this.role === 'host' && this.waitingRoomOn) {
+      setTimeout(() => {
+        if (this.state.screen !== 'meeting' || this.state.admitted || this.state.waitingGuest) return;
+        this.setState({ waitingGuest: true });
+        this.toast('Leila Boum is in the waiting room', { admit: true, sticky: true });
+      }, 14000);
+    }
+  }
+  fmtElapsed() {
+    const s = this.state.elapsedS, m = Math.floor(s / 60);
+    return (m < 10 ? '0' : '') + m + ':' + ((s % 60) < 10 ? '0' : '') + (s % 60);
+  }
+  allowAccess = async () => {
+    try {
+      const st = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      this.stream = st;
+      this.setState({ permState: 'granted', realCam: true });
+    } catch (e) {
+      if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) this.setState({ permState: 'denied' });
+      else if (e && e.name === 'NotFoundError') this.setState({ permState: 'nodevice' });
+      else this.setState({ permState: 'granted', realCam: false });
+    }
+  }
+  renderVals() {
+    const S = this.state, isHost = this.role === 'host';
+    const scr = S.screen;
+    const appScreens = ['dash', 'schedule', 'schedDone', 'settings', 'recordings', 'detail'];
+    const codeOk = /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/i.test(S.code.trim()) || /diss\.app\//i.test(S.code);
+    const palette = ['#8a5a44', '#5a7a6a', '#7a5a7a', '#5a6a8a', '#8a7a4a', '#6a5a8a', '#4a7a7a', '#8a5a5a', '#5a8a5a', '#7a6a5a', '#5a8a7a'];
+    const roster = this.roster();
+    const handQ = { q: 0 };
+    const mkTile = (p, i) => {
+      const you = !!p.you;
+      const muted = you ? S.micMuted : (S.mutedAll && !you ? true : p.mute);
+      const camOn = you ? !S.camOff : p.cam;
+      const speaking = i === S.activeIdx && !S.reconnecting && (!muted || you);
+      const hand = you ? S.hand : p.hand;
+      if (hand) handQ.q++;
+      const hostName = isHost ? 'Maya Chen' : 'Amara Okafor';
+      const isHostP = (isHost && you) || (!isHost && p.alt);
+      return {
+        key: p.n, camOn: camOn, camOff: !camOn, img: 'https://i.pravatar.cc/420?img=' + p.img,
+        imgBig: 'https://i.pravatar.cc/900?img=' + p.img, imgSm: 'https://i.pravatar.cc/80?img=' + p.img,
+        color: palette[i % palette.length],
+        initials: p.n.split(' ').map(w => w[0]).join('').slice(0, 2),
+        label: you ? p.n + ' (you)' : p.n, short: you ? 'You' : p.n.split(' ')[0],
+        muted: muted && !speaking ? true : muted, hand: !!hand, handQ: hand ? '#' + handQ.q : '',
+        badge: isHostP ? 'HOST' : '',
+        ring: speaking ? '0 0 0 2.5px #f08b5f, 0 0 26px rgba(240,139,95,.5)' : (S.pinned === i ? '0 0 0 2px #a3988a' : 'none'),
+        micColor: muted ? '#e0836f' : '#6fbf8f', micIcon: muted ? this.ic('micOff',14) : this.ic('mic',14),
+        pinIcon: S.pinned === i ? this.lbl('pin','Unpin',13) : this.ic('pin',13),
+        pinToggle: () => this.setState(s => ({ pinned: s.pinned === i ? null : i, view: 'speaker' })),
+        hostMute: () => this.toast('Asked ' + p.n.split(' ')[0] + ' to mute')
+      };
+    };
+    const tiles = roster.map(mkTile);
+    const mainIdx = S.pinned != null ? S.pinned : S.activeIdx;
+    const mainTile = tiles[Math.min(mainIdx, tiles.length - 1)] || tiles[0];
+    const strip = tiles.filter((t, i) => i !== Math.min(mainIdx, tiles.length - 1)).slice(0, 6);
+    const stripRest = tiles.length - 1 - strip.length;
+    const n = tiles.length;
+    const gridCols = n <= 1 ? 1 : n === 2 ? 2 : n <= 4 ? 2 : n <= 6 ? 3 : n <= 9 ? 3 : 4;
+    const conn = S.reconnecting ? 'bad' : 'good';
+    const setTab = (t) => () => this.setState({ settingsTab: t });
+    const mkT = (labels, key) => labels.map((label, i) => ({
+      label: label, bg: S[key][i] ? '#f08b5f' : '#3a332b', knob: S[key][i] ? '19px' : '3px',
+      toggle: () => { const a = S[key].slice(); a[i] = !a[i]; this.setState({ [key]: a }); }
+    }));
+    const stars = [1, 2, 3, 4, 5].map(v => ({
+      color: v <= S.rating ? '#f0b45f' : '#3a332b',
+      rate: () => this.setState({ rating: v, ratedDone: v >= 4 })
+    }));
+    const meetingsUp = [
+      { title: 'Weekly team sync', when: 'Today · 2:30 PM', img: 'https://i.pravatar.cc/68?img=49', soon: true },
+      { title: 'Design crit — onboarding', when: 'Tomorrow · 11:00 AM', img: 'https://i.pravatar.cc/68?img=26', soon: false },
+      { title: '1:1 with Jonas', when: 'Thu · 4:00 PM', img: 'https://i.pravatar.cc/68?img=12', soon: false }
+    ];
+    return {
+      // routing
+      isLanding: scr === 'landing', isAuth: scr === 'auth', isApp: appScreens.includes(scr),
+      isDash: scr === 'dash', isSchedule: scr === 'schedule', isSchedDone: scr === 'schedDone',
+      isSettings: scr === 'settings', isRecordings: scr === 'recordings', isDetail: scr === 'detail',
+      isLobby: scr === 'lobby', isWaiting: scr === 'waiting', isMeeting: scr === 'meeting', isPost: scr === 'post',
+      goLanding: () => this.go('landing'), goDash: () => this.go('dash'), goMeetings: () => this.go('dash'),
+      goSchedule: () => this.go('schedule'), goSettings: () => this.go('settings'), goRecordings: () => this.go('recordings'),
+      goAuthIn: () => this.go('auth', { authMode: 'signin', authStep: 'form' }),
+      goAuthUp: () => this.go('auth', { authMode: 'signup', authStep: 'form' }),
+      stop: (e) => e.stopPropagation(),
+      // landing / code
+      code: S.code, onCode: (e) => this.setState({ code: e.target.value, codeInvalid: false }),
+      codeInvalid: S.codeInvalid, codeDisabled: !codeOk && S.code.length > 0 ? false : !codeOk,
+      joinBtnBg: codeOk ? '#f08b5f' : '#2e2822', joinBtnFg: codeOk ? '#241209' : '#6f665b',
+      joinFromCode: () => { if (codeOk) this.go('lobby', { joinModal: false, permState: 'prompt' }); else this.setState({ codeInvalid: true }); },
+      // auth
+      authNotSent: S.authStep === 'form', authSent: S.authStep === 'sent',
+      authTitle: S.authMode === 'signup' ? 'Create your account' : 'Welcome back',
+      authSub: S.authMode === 'signup' ? 'Free forever for meetings up to 60 minutes.' : 'Good to see you again.',
+      authSwapQ: S.authMode === 'signup' ? 'Already have an account?' : 'New here?',
+      authSwapA: S.authMode === 'signup' ? 'Sign in' : 'Create account',
+      magicLabel: S.authMode === 'signup' ? 'Continue with email' : 'Email me a sign-in link',
+      swapAuth: (e) => { e.preventDefault(); this.setState(s => ({ authMode: s.authMode === 'signup' ? 'signin' : 'signup' })); },
+      email: S.email, onEmail: (e) => this.setState({ email: e.target.value, emailInvalid: false }),
+      emailInvalid: S.emailInvalid,
+      sendMagic: () => { if (/.+@.+\..+/.test(S.email)) this.setState({ authStep: 'sent' }); else this.setState({ emailInvalid: true }); },
+      backToAuth: (e) => { e.preventDefault(); this.setState({ authStep: 'form' }); },
+      magicClicked: () => this.go('dash'), oauthGo: () => this.go('dash'),
+      // nav highlight
+      navHomeBg: scr === 'dash' ? '#2a241e' : 'none', navHomeFg: scr === 'dash' ? '#f4eee5' : '#a3988a',
+      navMeetBg: scr === 'detail' ? '#2a241e' : 'none', navMeetFg: scr === 'detail' ? '#f4eee5' : '#a3988a',
+      navRecBg: scr === 'recordings' ? '#2a241e' : 'none', navRecFg: scr === 'recordings' ? '#f4eee5' : '#a3988a',
+      navSetBg: scr === 'settings' ? '#2a241e' : 'none', navSetFg: scr === 'settings' ? '#f4eee5' : '#a3988a',
+      // dashboard
+      greeting: new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening',
+      clock: S.clock, dateStr: S.dateStr,
+      newMeeting: () => this.go('lobby', { permState: 'prompt', lobbyCam: true }),
+      newMeetingVideoOff: () => this.go('lobby', { permState: 'prompt', lobbyCam: false }),
+      toggleNewMenu: () => this.setState(s => ({ newMenuOpen: !s.newMenuOpen })),
+      newMenuOpen: S.newMenuOpen,
+      copyInviteOnly: () => { this.setState({ newMenuOpen: false }); navigator.clipboard && navigator.clipboard.writeText('https://diss.app/wkt-eamq-fjz'); },
+      openJoin: () => this.setState({ joinModal: true, code: '', codeInvalid: false }),
+      closeJoin: () => this.setState({ joinModal: false }), joinModalOpen: S.joinModal,
+      upcoming: meetingsUp.map(m => ({
+        title: m.title, when: m.when, img: m.img, disabled: !m.soon,
+        btnBg: m.soon ? '#f08b5f' : '#241f1a', btnFg: m.soon ? '#241209' : '#6f665b',
+        join: () => this.go('lobby', { permState: 'prompt' }),
+        copy: () => { navigator.clipboard && navigator.clipboard.writeText('https://diss.app/wkt-eamq-fjz'); }
+      })),
+      recent: [
+        { title: 'Sprint retro', when: 'Fri', dur: '42 min', people: 6, rec: true, open: () => this.go('detail') },
+        { title: 'All hands · July', when: 'Wed', dur: '58 min', people: 34, rec: true, open: () => this.go('detail') },
+        { title: 'Coffee chat with Hana', when: 'Mon', dur: '21 min', people: 2, rec: false, open: () => this.go('detail') }
+      ],
+      // schedule
+      schedTitle: S.schedTitle, onSchedTitle: (e) => this.setState({ schedTitle: e.target.value }),
+      schedTitleFinal: S.schedTitle || 'Weekly team sync',
+      optionsOpen: S.optionsOpen, toggleOptions: () => this.setState(s => ({ optionsOpen: !s.optionsOpen })),
+      optionsChevron: S.optionsOpen ? this.ic('chevronUp',14) : this.ic('chevronDown',14),
+      schedOpts: mkT(['Waiting room', 'Guests can join before host', 'Participants start muted', 'Non-hosts can share screen'], 'schedOpts'),
+      saveSchedule: () => this.go('schedDone', { copied: false }),
+      copyLink: () => { navigator.clipboard && navigator.clipboard.writeText('https://diss.app/wkt-eamq-fjz'); this.setState({ copied: true }); setTimeout(() => this.setState({ copied: false }), 2000); if (scr === 'meeting') this.toast('Invite link copied'); },
+      copyLabel: S.copied ? 'Copied' : 'Copy link',
+      copyInvitation: () => { navigator.clipboard && navigator.clipboard.writeText('Join "Weekly team sync"\nTue Jul 21, 3:00 PM PT\nhttps://diss.app/wkt-eamq-fjz'); },
+      // detail / recordings
+      attendees: ['Maya Chen|47|Host', 'Amara Okafor|49|Co-host', 'Jonas Berg|12|', 'Priya Nair|26|', 'Diego Ramos|60|', 'Nkechi Eze|24|'].map((s, i) => {
+        const [name, img, role] = s.split('|');
+        return { name: name, img: 'https://i.pravatar.cc/60?img=' + img, color: palette[i], role: role };
+      }),
+      recordings: [
+        { title: 'Sprint retro', meta: 'Fri, Jul 17 · 42 min · 380 MB', g1: '#4a3a30', g2: '#2a2018', open: () => this.go('detail') },
+        { title: 'All hands · July', meta: 'Wed, Jul 15 · 58 min · 512 MB', g1: '#3a4038', g2: '#20261e', open: () => this.go('detail') },
+        { title: 'Roadmap review', meta: 'Jul 8 · 35 min · 298 MB', g1: '#403a48', g2: '#241f2a', open: () => this.go('detail') }
+      ],
+      // settings
+      settingsTabs: [['profile', 'Profile'], ['av', 'Audio & Video'], ['notif', 'Notifications'], ['account', 'Account']].map(([k, label]) => ({
+        label: label, bg: S.settingsTab === k ? '#f08b5f' : '#241f1a', fg: S.settingsTab === k ? '#241209' : '#a3988a', go: setTab(k)
+      })),
+      setProfile: S.settingsTab === 'profile', setAV: S.settingsTab === 'av', setNotif: S.settingsTab === 'notif', setAccount: S.settingsTab === 'account',
+      avToggles: mkT(['Mute my mic when I join', 'Turn my camera off when I join', 'Noise suppression'], 'avOpts'),
+      notifToggles: mkT(['Email me 10 minutes before meetings', 'Meeting-invite emails'], 'notifOpts'),
+      // lobby
+      lobbyMeetingTitle: 'Weekly team sync', lobbyHostName: isHost ? 'you' : 'Amara Okafor',
+      lobbyPrompt: S.permState === 'prompt', lobbyDenied: S.permState === 'denied',
+      lobbyNoDevice: S.permState === 'nodevice', lobbyBusy: S.permState === 'busy',
+      lobbyGranted: S.permState === 'granted',
+      realCam: S.realCam, fakeCam: !S.realCam, videoRef: this.videoRef,
+      allowAccess: this.allowAccess,
+      retryCam: () => this.setState({ permState: 'granted', realCam: false }),
+      joinWithoutAV: () => { this.setState({ lobbyMic: false, lobbyCam: false }); this.proceedJoin(); },
+      lobbyCamOn: S.lobbyCam, lobbyCamOff: !S.lobbyCam,
+      lobbyInitials: (S.lobbyName || 'M C').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase(),
+      lobbyNameChip: S.lobbyName || 'You',
+      lobbyName: S.lobbyName, onLobbyName: (e) => this.setState({ lobbyName: e.target.value }),
+      lobbyToggleMic: () => this.setState(s => ({ lobbyMic: !s.lobbyMic })),
+      lobbyToggleCam: () => this.setState(s => ({ lobbyCam: !s.lobbyCam })),
+      lobbyMicIcon: S.lobbyMic ? this.ic('mic',18) : this.ic('micOff',18), lobbyCamIcon: S.lobbyCam ? this.ic('video',18) : this.ic('videoOff',18),
+      lobbyMicBg: S.lobbyMic ? 'rgba(30,26,22,.8)' : 'rgba(201,74,56,.9)', lobbyMicBorder: S.lobbyMic ? '#3a332b' : '#c94a38',
+      lobbyCamBg: S.lobbyCam ? 'rgba(30,26,22,.8)' : 'rgba(201,74,56,.9)', lobbyCamBorder: S.lobbyCam ? '#3a332b' : '#c94a38',
+      lobbyMicTitle: S.lobbyMic ? 'Mute' : 'Unmute', lobbyCamTitle: S.lobbyCam ? 'Turn camera off' : 'Turn camera on',
+      meterBars: Array.from({ length: 18 }, (_, i) => ({
+        color: i < 12 ? '#6fbf8f' : '#f0b45f', dur: (0.5 + (i * 37 % 10) / 14) + 's', delay: (i * 53 % 10) / 12 + 's'
+      })),
+      meterPlay: S.lobbyMic && S.permState === 'granted' ? 'running' : 'paused',
+      testSpeaker: (e) => { e.preventDefault(); this.setState({ speakerTesting: true }); setTimeout(() => this.setState({ speakerTesting: false }), 1500); },
+      speakerLabel: S.speakerTesting ? 'Playing…' : 'Test speaker',
+      joinCta: !isHost && this.waitingRoomOn ? 'Ask to join' : 'Join now',
+      joinNow: () => this.proceedJoin(),
+      permChips: [['prompt', 'ask'], ['granted', 'granted'], ['denied', 'denied'], ['nodevice', 'no camera'], ['busy', 'camera busy']].map(([k, label]) => ({
+        label: label, go: () => this.setState({ permState: k, realCam: k === 'granted' ? S.realCam : false }),
+        bg: S.permState === k ? '#2e2822' : 'none', border: S.permState === k ? '#4a4238' : '#2e2822',
+        fg: S.permState === k ? '#f0a97f' : '#6f665b'
+      })),
+      // waiting
+      waitingLine: 'Amara will let you in soon. Sit tight — you look great, by the way.',
+      leaveWaiting: () => this.go('landing'),
+      // meeting core
+      wake: () => {
+        if (!this.state.bars) this.setState({ bars: true });
+        clearTimeout(this._hideT);
+        this._hideT = setTimeout(() => {
+          const s = this.state;
+          if (!s.panel && !s.moreOpen && !s.leaveOpen && !s.reactionsOpen && !s.connPop && !s.shortcutsOpen) this.setState({ bars: false });
+        }, 4000);
+      },
+      barsOp: S.bars ? 1 : 0, barsPe: S.bars ? 'auto' : 'none',
+      youreIn: S.youreIn, elapsed: this.fmtElapsed(),
+      recording: S.recording, recBanner: S.recBanner,
+      toggleView: () => this.setState(s => ({ view: s.view === 'grid' ? 'speaker' : 'grid' })),
+      viewLabel: S.view === 'grid' ? this.lbl('grid','Grid',15) : this.lbl('user','Speaker',15),
+      gridView: S.view === 'grid', speakerView: S.view === 'speaker',
+      gridCols: gridCols, tiles: tiles, mainTile: mainTile, strip: strip,
+      stripOverflow: stripRest > 0 ? '+' + stripRest : false,
+      selfPip: !S.selfCollapsed, selfCollapsed: S.selfCollapsed,
+      collapseSelf: () => this.setState(s => ({ selfCollapsed: !s.selfCollapsed })),
+      selfCamOn: !S.camOff, selfCamOffB: S.camOff,
+      connColor: conn === 'good' ? '#6fbf8f' : '#e0b45f', conn3op: conn === 'good' ? 1 : 0.25,
+      connPopOpen: S.connPop, toggleConnPop: () => this.setState(s => ({ connPop: !s.connPop })),
+      connHeadline: conn === 'good' ? 'Your connection looks great' : 'Your connection is unstable',
+      connBitrate: conn === 'good' ? '2.4 Mbps' : '0.3 Mbps', connLatency: conn === 'good' ? '38 ms' : '410 ms',
+      connLoss: conn === 'good' ? '0.1%' : '8.2%',
+      reconnecting: S.reconnecting, mutedNudge: S.mutedNudge,
+      dismissNudge: () => this.setState({ mutedNudge: false }),
+      // controls
+      toggleMic: this.toggleMic, toggleCam: this.toggleCam,
+      micBtnIcon: S.micMuted ? this.ic('micOff',20) : this.ic('mic',20), camBtnIcon: S.camOff ? this.ic('videoOff',20) : this.ic('video',20),
+      micBtnBg: S.micMuted ? 'rgba(201,74,56,.85)' : '#1e1a16', micBtnBorder: S.micMuted ? '#c94a38' : '#2e2822',
+      camBtnBg: S.camOff ? 'rgba(201,74,56,.85)' : '#1e1a16', camBtnBorder: S.camOff ? '#c94a38' : '#2e2822',
+      sharing: S.sharing,
+      toggleShare: () => {
+        this.setState(s => ({ sharing: !s.sharing }));
+        if (!S.sharing) this.toast('You started sharing — everyone sees your screen');
+      },
+      shareBtnBg: S.sharing ? 'rgba(111,191,143,.2)' : '#1e1a16', shareBtnBorder: S.sharing ? 'rgba(111,191,143,.5)' : '#2e2822',
+      shareBtnFg: S.sharing ? '#6fbf8f' : '#f4eee5',
+      reactionsOpen: S.reactionsOpen, toggleReactions: () => this.setState(s => ({ reactionsOpen: !s.reactionsOpen, moreOpen: false, leaveOpen: false })),
+      reactBtnBg: S.reactionsOpen || S.hand ? '#2e2822' : '#1e1a16',
+      toggleHand: () => { const h = !S.hand; this.setState({ hand: h, reactionsOpen: false }); if (h) this.toast('Your hand is up — you\'re #' + (handQ.q + 1) + ' in line'); },
+      handLabel: S.hand ? this.lbl('hand','Lower hand',15) : this.lbl('hand','Raise hand',15),
+      handBg: S.hand ? 'rgba(240,180,95,.2)' : '#2a241e', handBorder: S.hand ? 'rgba(240,180,95,.5)' : '#3a332b',
+      emojis: ['thumbsUp', 'heart', 'laugh', 'party', 'clap'].map(ch => ({
+        char: this.ic(ch, 22), send: () => {
+          const id = Math.random();
+          this.setState(s => ({ bursts: s.bursts.concat([{ id: id, name: ch, x: (35 + Math.random() * 30) + '%' }]), reactionsOpen: false }));
+          setTimeout(() => this.setState(s => ({ bursts: s.bursts.filter(b => b.id !== id) })), 3600);
+        }
+      })),
+      bursts: S.bursts.map(b => ({ id: b.id, x: b.x, emoji: this.ic(b.name, 34) })),
+      openChatToggle: () => this.togglePanel('chat'), openPeopleToggle: () => this.togglePanel('people'),
+      openChat: () => this.setState({ tab: 'chat', unread: 0 }), openPeople: () => this.setState({ tab: 'people' }),
+      closePanel: () => this.setState({ panel: null }),
+      panelOpen: !!S.panel, chatTab: S.tab === 'chat', peopleTab: S.tab === 'people',
+      chatTabBg: S.tab === 'chat' ? '#2a241e' : 'none', chatTabFg: S.tab === 'chat' ? '#f4eee5' : '#8a7f70',
+      peopleTabBg: S.tab === 'people' ? '#2a241e' : 'none', peopleTabFg: S.tab === 'people' ? '#f4eee5' : '#8a7f70',
+      chatBtnBg: S.panel && S.tab === 'chat' ? '#2e2822' : '#1e1a16',
+      peopleBtnBg: S.panel && S.tab === 'people' ? '#2e2822' : '#1e1a16',
+      peopleBtnAnim: S.waitingGuest && isHost ? 'badgePulse 1.6s infinite' : 'none',
+      unreadBadge: S.unread > 0 ? String(S.unread) : false,
+      peopleCount: roster.length,
+      messages: S.messages.map(m => ({
+        who: m.who, text: m.text, align: m.mine ? 'flex-end' : 'flex-start',
+        bg: m.mine ? '#f08b5f' : '#241f1a', fg: m.mine ? '#241209' : '#f4eee5'
+      })),
+      chatInput: S.chatInput, onChatInput: (e) => this.setState({ chatInput: e.target.value }),
+      chatKey: (e) => { if (e.key === 'Enter') this.sendChat(); },
+      sendChat: () => this.sendChat(),
+      peopleRows: tiles, isHostRole: isHost, isGuestRole: !isHost,
+      waitingGuest: S.waitingGuest && isHost,
+      admitGuest: () => { this.setState({ waitingGuest: false, admitted: true, toasts: [] }); this.toast('Leila Boum joined'); },
+      denyGuest: () => { this.setState({ waitingGuest: false, toasts: [] }); },
+      muteAll: () => { this.setState({ mutedAll: true }); this.toast('Everyone is muted — they can unmute themselves'); },
+      toggleLock: () => { const l = !S.locked; this.setState({ locked: l }); this.toast(l ? 'Meeting locked — no one else can join' : 'Meeting unlocked'); },
+      lockLabel: S.locked ? this.lbl('lock','Locked') : 'Lock meeting',
+      lockBg: S.locked ? 'rgba(240,139,95,.15)' : '#241f1a', lockBorder: S.locked ? 'rgba(240,139,95,.4)' : '#362f28',
+      lockFg: S.locked ? '#f0a97f' : '#f4eee5',
+      moreOpen: S.moreOpen, toggleMore: () => this.setState(s => ({ moreOpen: !s.moreOpen, reactionsOpen: false, leaveOpen: false })),
+      moreItems: [
+        isHost ? { label: S.recording ? this.lbl('square','Stop recording') : this.lbl('record','Start recording'), color: '#f4eee5', go: () => this.toggleRec() } : null,
+        { label: this.lbl('keyboard','Keyboard shortcuts'), color: '#f4eee5', go: () => this.setState({ shortcutsOpen: true, moreOpen: false }) },
+        { label: this.lbl('fullscreen','Fullscreen'), color: '#f4eee5', go: () => { this.setState({ moreOpen: false }); document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => {}); } },
+        { label: this.lbl('wifiOff','Demo: connection drop'), color: '#e0b45f', go: () => this.demoReconnect() },
+        { label: this.lbl('flag','Report a problem'), color: '#f4eee5', go: () => { this.setState({ moreOpen: false }); this.toast('Thanks — our team takes a look at every report'); } }
+      ].filter(Boolean),
+      shortcutsOpen: S.shortcutsOpen, closeShortcuts: () => this.setState({ shortcutsOpen: false }),
+      shortcuts: [
+        { what: 'Mute / unmute', key: 'M' }, { what: 'Camera on / off', key: 'V' },
+        { what: 'Push to talk (hold)', key: 'Space' }, { what: 'Chat', key: 'C' },
+        { what: 'People', key: 'P' }, { what: 'Fullscreen', key: 'F' },
+        { what: 'Copy invite link', key: '⌘D' }, { what: 'Close panel', key: 'Esc' }
+      ],
+      leaveOpen: S.leaveOpen, toggleLeave: () => this.setState(s => ({ leaveOpen: !s.leaveOpen, moreOpen: false, reactionsOpen: false })),
+      confirmLeave: () => this.leaveMeeting('left'),
+      leaveAsHost: () => { this.toast('Amara Okafor is the host now'); setTimeout(() => this.leaveMeeting('left'), 700); },
+      endForAll: () => this.leaveMeeting('ended'),
+      toasts: S.toasts,
+      // post
+      postHeadline: S.postKind === 'ended' ? 'The host ended the meeting' : 'You left the meeting',
+      postSub: S.postKind === 'ended' ? 'Thanks for coming — see you at the next one.' : 'Left by accident? Happens to the best of us.',
+      canRejoin: S.postKind !== 'ended',
+      rejoin: () => this.enterMeeting(),
+      stars: stars, ratedLow: S.rating > 0 && S.rating < 4 && !S.ratedDone, ratedThanks: S.ratedDone,
+      issueChips: ['Audio', 'Video', 'Connection'].map(label => ({
+        label: label, bg: S.issues.includes(label) ? 'rgba(240,139,95,.15)' : 'none',
+        border: S.issues.includes(label) ? 'rgba(240,139,95,.5)' : '#3a332b',
+        fg: S.issues.includes(label) ? '#f0a97f' : '#a3988a',
+        toggle: () => this.setState(s => ({ issues: s.issues.includes(label) ? s.issues.filter(x => x !== label) : s.issues.concat([label]), ratedDone: false })) 
+      })),
+      skipRating: (e) => { e.preventDefault(); this.setState({ ratedDone: true }); },
+      // proto nav
+      protoOpen: S.protoOpen, toggleProto: () => this.setState(s => ({ protoOpen: !s.protoOpen })),
+      protoScreens: [
+        ['landing', 'Landing'], ['auth', 'Sign in / up'], ['dash', 'Dashboard'], ['schedule', 'Schedule'],
+        ['schedDone', 'Schedule done'], ['lobby', 'Pre-join lobby'], ['waiting', 'Waiting room'],
+        ['meeting', 'In-meeting'], ['post', 'Post-meeting'], ['recordings', 'Recordings'],
+        ['detail', 'Meeting detail'], ['settings', 'Settings']
+      ].map(([k, label]) => ({
+        label: label, bg: scr === k ? '#2e2822' : 'none', fg: scr === k ? '#f0a97f' : '#c9beb0',
+        go: () => { if (k === 'meeting') { this.go('meeting'); this.enterMeeting(); } else this.go(k, k === 'lobby' ? { permState: 'prompt' } : {}); }
+      }))
+    };
+  }
+  proceedJoin() {
+    if (this.role !== 'host' && this.waitingRoomOn) {
+      this.go('waiting');
+      this._t.admit = setTimeout(() => { if (this.state.screen === 'waiting') this.enterMeeting(); }, 6000);
+    } else this.enterMeeting();
+  }
+  sendChat() {
+    const t = this.state.chatInput.trim();
+    if (!t) return;
+    this.setState(s => ({ messages: s.messages.concat([{ who: 'You', text: t, mine: true }]), chatInput: '' }));
+  }
+  toggleRec() {
+    const r = !this.state.recording;
+    this.setState({ recording: r, moreOpen: false, recBanner: r ? 'Recording started — everyone can see the REC badge' : 'Recording stopped. It\'ll show up in your library shortly.' });
+    setTimeout(() => this.setState({ recBanner: null }), 4500);
+  }
+  demoReconnect() {
+    this.setState({ moreOpen: false, reconnecting: true });
+    setTimeout(() => { this.setState({ reconnecting: false }); this.toast('You\'re back — connection restored'); }, 6000);
+  }
+}
+</script>
+</body>
+</html>

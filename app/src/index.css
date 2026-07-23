@@ -1,0 +1,33 @@
+html, body { margin: 0; padding: 0; background: #151210; color: #f4eee5; }
+* { box-sizing: border-box; }
+a { color: #f0a97f; text-decoration: none; }
+a:hover { color: #f6c2a2; }
+input::placeholder, textarea::placeholder { color: #6f665b; }
+select option { background: #241f1a; color: #f4eee5; }
+button { font-family: inherit; }
+input:focus, textarea:focus { border-color: #f08b5f !important; }
+
+/* hover utilities (design's style-hover equivalents) */
+.hv-bg-2a:hover { background: #2a241e !important; }
+.hv-bg-2e:hover { background: #2e2822 !important; }
+.hv-bg-33:hover { background: #332c25 !important; }
+.hv-bg-21:hover { background: #211c18 !important; }
+.hv-primary:hover { background: #f59e77 !important; }
+.hv-bright:hover { filter: brightness(1.06); }
+.hv-fg:hover { color: #f4eee5 !important; }
+.hv-border:hover { border-color: #3a332b !important; }
+.hv-danger:hover { background: #d95845 !important; }
+.hv-danger-soft:hover { background: rgba(224, 96, 79, 0.2) !important; }
+.hv-danger-ghost:hover { background: rgba(224, 96, 79, 0.1) !important; }
+.hv-reveal { opacity: 0; transition: opacity 0.15s; }
+.tile:hover .hv-reveal { opacity: 1; }
+
+@keyframes meterA { 0%, 100% { transform: scaleY(0.2); } 50% { transform: scaleY(1); } }
+@keyframes breathe { 0%, 100% { opacity: 0.35; transform: scale(1); } 50% { opacity: 0.9; transform: scale(1.25); } }
+@keyframes floatUp { 0% { transform: translateY(0) scale(0.7); opacity: 0; } 12% { opacity: 1; transform: translateY(-24px) scale(1.1); } 100% { transform: translateY(-220px) scale(1); opacity: 0; } }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes glowPulse { 0%, 100% { box-shadow: 0 0 0 2px #f08b5f, 0 0 22px rgba(240, 139, 95, 0.45); } 50% { box-shadow: 0 0 0 3px #f08b5f, 0 0 34px rgba(240, 139, 95, 0.7); } }
+@keyframes recBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes badgePulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(240, 139, 95, 0.6); } 70% { box-shadow: 0 0 0 8px rgba(240, 139, 95, 0); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { * { animation-duration: 0.01s !important; } }
