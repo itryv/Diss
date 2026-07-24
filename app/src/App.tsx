@@ -11,8 +11,11 @@ const APP_SCREENS = ['dash', 'schedule', 'schedDone', 'settings', 'recordings', 
 
 function Screens() {
   const { s } = useApp();
+  // The screen class lets index.css make the screens owned by the media layer
+  // (Shell/Lobby/Post/Auth/Landing) responsive without touching their markup.
+  const cls = `app-root screen-${s.screen}${APP_SCREENS.includes(s.screen) ? ' shell-screen' : ''}`;
   return (
-    <div style={{ fontFamily: "'Instrument Sans',sans-serif", minHeight: '100vh', background: '#151210', color: '#f4eee5', WebkitFontSmoothing: 'antialiased' }}>
+    <div className={cls} style={{ fontFamily: "'Instrument Sans',sans-serif", minHeight: '100vh', background: '#151210', color: '#f4eee5', WebkitFontSmoothing: 'antialiased' }}>
       {s.screen === 'landing' && <Landing />}
       {s.screen === 'auth' && <Auth />}
       {APP_SCREENS.includes(s.screen) && <Shell />}
@@ -30,7 +33,8 @@ function Screens() {
           ))}
         </div>
       )}
-      <ProtoNav />
+      {/* Dev-only screen switcher — never ships to production users. */}
+      {import.meta.env.DEV && <ProtoNav />}
     </div>
   );
 }

@@ -1,5 +1,8 @@
 html, body { margin: 0; padding: 0; background: #151210; color: #f4eee5; }
+/* Nothing may cause horizontal page scroll — the layouts below fit, this is the belt-and-braces. */
+html, body { max-width: 100%; overflow-x: hidden; -webkit-text-size-adjust: 100%; }
 * { box-sizing: border-box; }
+img, video, canvas, svg { max-width: 100%; }
 a { color: #f0a97f; text-decoration: none; }
 a:hover { color: #f6c2a2; }
 input::placeholder, textarea::placeholder { color: #6f665b; }
@@ -31,3 +34,87 @@ input:focus, textarea:focus { border-color: #f08b5f !important; }
 @keyframes badgePulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(240, 139, 95, 0.6); } 70% { box-shadow: 0 0 0 8px rgba(240, 139, 95, 0); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { * { animation-duration: 0.01s !important; } }
+
+/* Touch devices have no hover, so the tile actions must always be reachable. */
+@media (hover: none) {
+  .hv-reveal { opacity: 1; }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Responsive. Breakpoints per the v3 contract: compact < 1100px, narrow < 760px.
+   The meeting screen handles itself in JS (state.isNarrow); the screens owned by
+   the media layer (landing / auth / dashboard shell / lobby / post) are adapted
+   here, keyed off the `screen-*` class App.tsx puts on the root.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* ── Compact: 760px – 1099px (below that the narrow rules take over) ── */
+@media (min-width: 760px) and (max-width: 1099px) {
+  .shell-screen > section > main { padding: 28px 24px !important; }
+  /* Lobby: let the preview and the join column share the width instead of
+     forcing a 420px minimum that overflows small laptops. */
+  .screen-lobby > section > div:first-child { width: min(62vw, 640px) !important; min-width: 0 !important; }
+  .screen-lobby > section { gap: 24px !important; padding: 24px !important; }
+}
+
+/* ── Narrow: < 760px ── */
+@media (max-width: 759px) {
+  /* Landing */
+  .screen-landing > section > header { padding: 16px 16px !important; }
+  .screen-landing h1 { font-size: 40px !important; letter-spacing: -1px !important; }
+  .screen-landing p { font-size: 16px !important; }
+  .screen-landing > section > div { padding: 24px 16px 56px !important; }
+  .screen-landing input { width: 140px !important; min-width: 0 !important; font-size: 15px !important; }
+  .screen-landing > section > div > div:last-child { margin-top: 48px !important; gap: 28px !important; }
+  .screen-landing > section > footer { padding: 18px 16px !important; }
+
+  /* Auth */
+  .screen-auth > section > div { width: 100% !important; max-width: 420px !important; padding: 26px 20px !important; border-radius: 16px !important; }
+  .screen-auth > section { padding: 16px !important; align-items: flex-start !important; padding-top: 24px !important; }
+
+  /* App shell: the 232px sidebar becomes a scrollable top bar */
+  .shell-screen > section { flex-direction: column !important; }
+  .shell-screen > section > nav {
+    width: 100% !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 6px !important;
+    padding: 8px 10px !important;
+    border-right: none !important;
+    border-bottom: 1px solid #2a241e !important;
+    overflow-x: auto !important;
+    scrollbar-width: none;
+  }
+  .shell-screen > section > nav > div:first-child { padding: 0 10px 0 4px !important; font-size: 20px !important; }
+  .shell-screen > section > nav > div:nth-child(2) { flex-direction: row !important; }
+  .shell-screen > section > nav > div:nth-child(2) button { white-space: nowrap !important; padding: 10px !important; }
+  .shell-screen > section > nav > div:last-child { display: none !important; }
+  .shell-screen > section > main { padding: 20px 16px 40px !important; max-width: 100% !important; }
+  .shell-screen h1 { font-size: 28px !important; }
+  /* Dashboard quick actions stack instead of squeezing into three columns */
+  .shell-screen main div[style*="repeat(3, 1fr)"],
+  .shell-screen main div[style*="repeat(3,1fr)"],
+  .shell-screen main div[style*="1.2fr 1fr"] { grid-template-columns: 1fr !important; }
+
+  /* Lobby: preview on top, controls underneath */
+  /* justify-content:flex-start matters: a centred flex column taller than the
+     viewport clips its own top and becomes unreachable. */
+  .screen-lobby > section { flex-direction: column !important; padding: 16px !important; gap: 18px !important; align-items: stretch !important; justify-content: flex-start !important; }
+  .screen-waiting > section, .screen-post > section { justify-content: flex-start !important; }
+  .screen-lobby > section > div { width: 100% !important; min-width: 0 !important; max-width: 100% !important; }
+  .screen-waiting > section > div { width: 100% !important; min-width: 0 !important; max-width: 100% !important; }
+  /* The 16:10 preview box is too short for the permission copy on a phone. */
+  .screen-lobby > section > div:first-child > div:first-child { width: 100% !important; aspect-ratio: auto !important; height: 264px !important; }
+  /* Its copy carries desktop max-widths (360/400px) that overflow a phone. */
+  .screen-lobby > section > div:first-child > div:first-child div { max-width: 100% !important; }
+
+  /* Post-meeting */
+  .screen-post > section { padding: 20px 16px !important; gap: 20px !important; }
+  .screen-post h1 { font-size: 26px !important; }
+  .screen-post > section > div { width: 100% !important; max-width: 420px !important; justify-content: center !important; }
+
+  /* Any leftover fixed-width modal */
+  .app-root [style*="position: fixed"] > div { max-width: calc(100vw - 24px) !important; }
+
+  /* Comfortable tap targets across the non-meeting screens */
+  .screen-landing button, .screen-auth button, .shell-screen button, .screen-post button { min-height: 44px; }
+}

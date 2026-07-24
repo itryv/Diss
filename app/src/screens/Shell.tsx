@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useApp, PALETTE } from '../store';
-import type { AppState } from '../store';
+import type { AppState, VideoQuality } from '../store';
+import { DevicePicker } from './Lobby';
 import { api, meetingLink, recordingFileUrl } from '../api';
 import type { Meeting, Recording } from '../api';
 import { Ic } from '../icons';
@@ -146,7 +147,7 @@ function Schedule() {
           <label style={labelStyle}>Title</label>
           <input value={s.schedTitle} onChange={e => app.patch({ schedTitle: e.target.value })} placeholder="Weekly team sync" style={inputStyle} />
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 10 }}>
           <div><label style={labelStyle}>Date</label><input value={new Date().toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} readOnly style={{ ...inputStyle, fontSize: 14 }} /></div>
           <div>
             <label style={labelStyle}>Start</label>
@@ -158,9 +159,8 @@ function Schedule() {
               })}
             </select>
           </div>
-          <div><label style={labelStyle}>Duration</label><select style={selectStyle}><option>30 min</option><option>45 min</option><option>60 min</option></select></div>
         </div>
-        <div style={{ fontSize: 13, color: '#8a7f70' }}>Time zone: <span style={{ color: '#c9beb0', fontWeight: 600 }}>Pacific Time (auto-detected)</span> · <a href="#">change</a></div>
+        <div style={{ fontSize: 13, color: '#8a7f70' }}>Time zone: <span style={{ color: '#c9beb0', fontWeight: 600 }}>{Intl.DateTimeFormat().resolvedOptions().timeZone} (auto-detected)</span></div>
         <div style={{ background: '#1e1a16', border: '1px solid #2e2822', borderRadius: 14 }}>
           <button onClick={() => app.patch({ optionsOpen: !s.optionsOpen })} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'none', border: 'none', color: '#f4eee5', padding: '15px 16px', fontSize: 14.5, fontWeight: 600, cursor: 'pointer' }}>
             Meeting options<span style={{ color: '#8a7f70' }}><Ic name={s.optionsOpen ? 'chevronUp' : 'chevronDown'} size={14} /></span>
@@ -170,10 +170,6 @@ function Schedule() {
               {opts.map((label, i) => <ToggleRow key={label} label={label} on={s.schedOpts[i]} onToggle={toggle(i)} />)}
             </div>
           )}
-        </div>
-        <div>
-          <label style={labelStyle}>Description / agenda <span style={{ color: '#6f665b', fontWeight: 400 }}>(optional)</span></label>
-          <textarea placeholder="What's this meeting about?" style={{ ...inputStyle, minHeight: 80, fontSize: 14.5, resize: 'vertical' }} />
         </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button className="hv-fg" onClick={() => app.go('dash')} style={{ background: 'none', border: '1px solid #3a332b', color: '#c9beb0', borderRadius: 12, padding: '12px 20px', fontWeight: 600, fontSize: 14.5, cursor: 'pointer' }}>Cancel</button>
@@ -343,9 +339,7 @@ function Recordings() {
 function Settings() {
   const app = useApp();
   const s = app.s;
-  const avToggle = useToggleList('avOpts');
-  const notifToggle = useToggleList('notifOpts');
-  const tabs: [AppState['settingsTab'], string][] = [['profile', 'Profile'], ['av', 'Audio & Video'], ['notif', 'Notifications'], ['account', 'Account']];
+  const tabs: [AppState['settingsTab'], string][] = [['profile', 'Profile'], ['av', 'Audio & Video'], ['account', 'Account']];
   return (
     <div style={{ maxWidth: 600, animation: 'fadeUp .35s ease' }}>
       <h1 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 28, margin: '0 0 20px' }}>Settings</h1>
@@ -369,18 +363,24 @@ function Settings() {
       )}
       {s.settingsTab === 'av' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 420 }}>
-          <div><label style={labelStyle}>Default microphone</label><select style={{ ...selectStyle, padding: 12 }}><option>MacBook Pro Microphone</option><option>AirPods Pro</option></select></div>
-          <div><label style={labelStyle}>Default camera</label><select style={{ ...selectStyle, padding: 12 }}><option>FaceTime HD Camera</option></select></div>
-          {['Mute my mic when I join', 'Turn my camera off when I join', 'Noise suppression'].map((label, i) => (
-            <ToggleRow key={label} label={label} on={s.avOpts[i]} onToggle={avToggle(i)} />
-          ))}
-        </div>
-      )}
-      {s.settingsTab === 'notif' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 420 }}>
-          {['Email me 10 minutes before meetings', 'Meeting-invite emails'].map((label, i) => (
-            <ToggleRow key={label} label={label} on={s.notifOpts[i]} onToggle={notifToggle(i)} />
-          ))}
+          <div><label style={labelStyle}>Default microphone</label><DevicePicker kind="mic" style={{ padding: 12, borderRadius: 12, fontSize: 14 }} /></div>
+          <div><label style={labelStyle}>Default camera</label><DevicePicker kind="cam" style={{ padding: 12, borderRadius: 12, fontSize: 14 }} /></div>
+          {s.canPickSpeaker && (
+            <div><label style={labelStyle}>Default speaker</label><DevicePicker kind="speaker" style={{ padding: 12, borderRadius: 12, fontSize: 14 }} /></div>
+          )}
+          <div>
+            <label style={labelStyle}>Video quality</label>
+            <select value={s.videoQuality} onChange={e => app.setVideoQuality(e.target.value as VideoQuality)} style={{ ...selectStyle, padding: 12 }}>
+              <option value="auto">Automatic — 720p, adapts to your connection</option>
+              <option value="high">Hi-Res — 1080p when bandwidth allows</option>
+              <option value="saver">Data saver — 360p, uses less bandwidth</option>
+            </select>
+            <div style={{ color: '#6f665b', fontSize: 12, marginTop: 6 }}>Applies straight away, even mid-meeting.</div>
+          </div>
+          <ToggleRow label="Mute my mic when I join" on={s.joinMuted} onToggle={() => app.toggleJoinPref('muted')} />
+          <ToggleRow label="Turn my camera off when I join" on={s.joinCamOff} onToggle={() => app.toggleJoinPref('camOff')} />
+          <ToggleRow label="Noise suppression" on={s.nsOn} onToggle={app.toggleNs} />
+          {s.blurSupported && <ToggleRow label="Blur my background" on={s.blurOn} onToggle={app.toggleBlur} />}
         </div>
       )}
       {s.settingsTab === 'account' && (
@@ -395,7 +395,7 @@ function Settings() {
           <div style={{ border: '1px solid rgba(224,96,79,.35)', borderRadius: 14, padding: 18 }}>
             <div style={{ fontWeight: 700, fontSize: 14.5, color: '#e0836f', marginBottom: 6 }}>Danger zone</div>
             <div style={{ color: '#a3988a', fontSize: 13, lineHeight: 1.5, marginBottom: 12 }}>Deleting your account removes all meetings and recordings. This can't be undone.</div>
-            <button className="hv-danger-ghost" style={{ background: 'none', border: '1px solid rgba(224,96,79,.5)', color: '#e0836f', borderRadius: 10, padding: '9px 15px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Delete account…</button>
+            <button className="hv-danger-ghost" onClick={() => app.toast("Account deletion isn't self-serve yet — email us and we'll wipe it for you")} style={{ background: 'none', border: '1px solid rgba(224,96,79,.5)', color: '#e0836f', borderRadius: 10, padding: '9px 15px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Delete account…</button>
           </div>
         </div>
       )}

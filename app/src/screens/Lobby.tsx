@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useApp } from '../store';
-import type { PermState } from '../store';
+import type { DeviceKind } from '../store';
+import { createLevelMeter } from '../media';
 import { Ic } from '../icons';
 import { initialsOf } from '../util';
 
@@ -36,21 +37,95 @@ function PrefRow({ label, hint, on, onToggle }: { label: string; hint?: string; 
   );
 }
 
+/** Real input level, drawn with the same 18 bars the prototype used. */
 function MicMeter() {
   const app = useApp();
   const s = app.s;
   const bars = useMemo(() => Array.from({ length: 18 }, (_, i) => ({
     color: i < 12 ? '#6fbf8f' : '#f0b45f',
-    dur: `${0.5 + ((i * 37) % 10) / 14}s`,
-    delay: `${((i * 53) % 10) / 12}s`,
+    // A little per-bar variation so it reads as a meter, not a single block.
+    weight: 0.72 + ((i * 37) % 11) / 22,
   })), []);
-  const playing = s.lobbyMic && s.permState === 'granted';
+  const barsRef = useRef<(HTMLSpanElement | null)[]>([]);
+  const liveRef = useRef(false);
+  liveRef.current = s.lobbyMic && (s.permState === 'granted' || s.permState === 'nodevice');
+  const streamBox = app.streamRef;
+
+  useEffect(() => {
+    let raf = 0;
+    let meter: { level(): number; stop(): void } | null = null;
+    let bound: MediaStream | null = null;
+    let smoothed = 0;
+    const tick = () => {
+      const stream = streamBox.current;
+      if (stream !== bound) {
+        meter?.stop();
+        meter = stream ? createLevelMeter(stream) : null;
+        bound = stream;
+      }
+      const raw = meter && liveRef.current ? meter.level() : 0;
+      // Quick to rise, slow to fall — reads naturally for speech.
+      smoothed += (raw - smoothed) * (raw > smoothed ? 0.5 : 0.16);
+      for (let i = 0; i < bars.length; i++) {
+        const el = barsRef.current[i];
+        if (!el) continue;
+        const h = Math.max(0.06, Math.min(1, smoothed * 1.9 * bars[i].weight));
+        el.style.transform = `scaleY(${h.toFixed(3)})`;
+      }
+      raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      meter?.stop();
+    };
+  }, [streamBox, bars]);
+
   return (
     <div style={{ display: 'flex', gap: 3, alignItems: 'flex-end', height: 26, background: '#1c1815', border: '1px solid #2e2822', borderRadius: 10, padding: '5px 10px' }}>
       {bars.map((b, i) => (
-        <span key={i} style={{ flex: 1, height: '100%', background: b.color, borderRadius: 2, transformOrigin: 'bottom', animation: `meterA ${b.dur} ease-in-out infinite`, animationDelay: b.delay, animationPlayState: playing ? 'running' : 'paused' }} />
+        <span
+          key={i}
+          ref={el => { barsRef.current[i] = el; }}
+          style={{ flex: 1, height: '100%', background: b.color, borderRadius: 2, transformOrigin: 'bottom', transform: 'scaleY(0.06)' }}
+        />
       ))}
     </div>
+  );
+}
+
+const DEVICE_LABEL: Record<DeviceKind, string> = { mic: 'Microphone', cam: 'Camera', speaker: 'Speaker' };
+
+/** One real device picker, backed by enumerateDevices. */
+export function DevicePicker({ kind, style }: { kind: DeviceKind; style?: React.CSSProperties }) {
+  const app = useApp();
+  const s = app.s;
+  const base = { ...selectStyle, ...style };
+  const list = (kind === 'mic' ? s.devices.mics : kind === 'cam' ? s.devices.cams : s.devices.speakers)
+    .filter(d => d.deviceId);
+  const value = (kind === 'mic' ? s.micId : kind === 'cam' ? s.camId : s.speakerId) ?? '';
+  const known = list.some(d => d.deviceId === value);
+  const labelled = list.some(d => d.label);
+
+  if (list.length === 0 || !labelled) {
+    return (
+      <select style={{ ...base, color: '#6f665b' }} disabled value="">
+        <option value="">{DEVICE_LABEL[kind]} — allow access to choose</option>
+      </select>
+    );
+  }
+  return (
+    <select
+      style={base}
+      aria-label={DEVICE_LABEL[kind]}
+      value={known ? value : ''}
+      onChange={e => app.selectDevice(kind, e.target.value || null)}
+    >
+      <option value="">{DEVICE_LABEL[kind]} — system default</option>
+      {list.map((d, i) => (
+        <option key={d.deviceId} value={d.deviceId}>{d.label || `${DEVICE_LABEL[kind]} ${i + 1}`}</option>
+      ))}
+    </select>
   );
 }
 
@@ -68,7 +143,13 @@ export function Lobby() {
     }
   });
 
-  const permChips: [PermState, string][] = [['prompt', 'ask'], ['granted', 'granted'], ['denied', 'denied'], ['nodevice', 'no camera'], ['busy', 'camera busy']];
+  // Leaving the lobby without joining must release the camera light. Joining
+  // hands the preview over to LiveKit before this runs.
+  const streamBox = app.streamRef;
+  useEffect(() => () => {
+    streamBox.current?.getTracks().forEach(t => t.stop());
+    streamBox.current = null;
+  }, [streamBox]);
 
   return (
     <section style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 36, flexWrap: 'wrap' }}>
@@ -104,20 +185,13 @@ export function Lobby() {
               <div style={{ display: 'flex' }}><Ic name="camera" size={36} /></div>
               <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 20 }}>Another app is using your camera</div>
               <div style={{ color: '#a3988a', fontSize: 14, maxWidth: 380, lineHeight: 1.5 }}>Close the other app (often Zoom, FaceTime, or OBS) and try again.</div>
-              <button className="hv-primary" onClick={() => app.patch({ permState: 'granted', realCam: false })} style={primaryBtn}>Try again</button>
+              <button className="hv-primary" onClick={app.allowAccess} style={primaryBtn}>Try again</button>
             </div>
           )}
           {s.permState === 'granted' && (
             <>
-              {s.lobbyCam ? (
-                s.realCam ? (
-                  <video ref={videoRef} autoPlay muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
-                ) : (
-                  <>
-                    <img src="https://i.pravatar.cc/900?img=47" alt="Camera preview placeholder" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)', filter: 'saturate(.9)' }} />
-                    <div style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(14,12,10,.6)', borderRadius: 99, padding: '5px 12px', fontSize: 11.5, color: '#a3988a', fontFamily: 'monospace' }}>simulated camera preview</div>
-                  </>
-                )
+              {s.lobbyCam && s.realCam ? (
+                <video ref={videoRef} autoPlay muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
               ) : (
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#141110' }}>
                   <div style={{ width: 96, height: 96, borderRadius: '50%', background: '#8a5a44', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 32 }}>{initials}</div>
@@ -131,12 +205,6 @@ export function Lobby() {
             </>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center' }}>
-          <span style={{ fontSize: 11.5, color: '#6f665b', fontFamily: 'monospace' }}>demo the permission states:</span>
-          {permChips.map(([k, label]) => (
-            <button key={k} onClick={() => app.patch(st => ({ permState: k, realCam: k === 'granted' ? st.realCam : false }))} style={{ background: s.permState === k ? '#2e2822' : 'none', border: `1px solid ${s.permState === k ? '#4a4238' : '#2e2822'}`, color: s.permState === k ? '#f0a97f' : '#6f665b', borderRadius: 99, padding: '5px 12px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>{label}</button>
-          ))}
-        </div>
       </div>
       <div style={{ width: 360, display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
@@ -149,9 +217,9 @@ export function Lobby() {
           <input value={s.lobbyName} onChange={e => app.patch({ lobbyName: e.target.value })} placeholder="How should we introduce you?" style={{ width: '100%', background: '#1c1815', border: '1px solid #3a332b', borderRadius: 12, padding: '13px 14px', color: '#f4eee5', fontSize: 15, fontFamily: 'inherit', outline: 'none' }} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-          <select style={selectStyle}><option>MacBook Pro Microphone</option><option>AirPods Pro</option></select>
-          <select style={selectStyle}><option>FaceTime HD Camera</option></select>
-          <select style={selectStyle}><option>MacBook Pro Speakers</option><option>AirPods Pro</option></select>
+          <DevicePicker kind="mic" />
+          <DevicePicker kind="cam" />
+          {s.canPickSpeaker && <DevicePicker kind="speaker" />}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {s.blurSupported && (
@@ -162,7 +230,7 @@ export function Lobby() {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#a3988a' }}>Speak to test your mic</span>
-            <a href="#" onClick={e => { e.preventDefault(); app.patch({ speakerTesting: true }); window.setTimeout(() => app.patch({ speakerTesting: false }), 1500); }} style={{ fontSize: 12.5 }}>{s.speakerTesting ? 'Playing…' : 'Test speaker'}</a>
+            <a href="#" onClick={e => { e.preventDefault(); app.testSpeaker(); }} style={{ fontSize: 12.5 }}>{s.speakerTesting ? 'Playing…' : 'Test speaker'}</a>
           </div>
           <MicMeter />
         </div>

@@ -5,18 +5,34 @@ import {
   LocalAudioTrack,
   Room,
   RoomEvent,
+  ScreenSharePresets,
   Track,
+  VideoPresets,
 } from 'livekit-client';
-import type { LocalVideoTrack, Participant, RemoteParticipant } from 'livekit-client';
+import type {
+  LocalTrack,
+  LocalVideoTrack,
+  Participant,
+  RemoteParticipant,
+  RemoteTrack,
+  RemoteTrackPublication,
+  VideoPreset,
+} from 'livekit-client';
 import { BackgroundProcessor, supportsBackgroundProcessors } from '@livekit/track-processors';
 import { api, ApiError, extractCode, meetingLink } from './api';
 import type { Meeting, ModerateAction, TokenResponse, User, WaitingGuest } from './api';
+import { applySinkId, canCaptureDisplayAudio, canSelectSpeaker, listDevices, playTestTone } from './media';
+import type { DeviceLists } from './media';
 
 export type Screen =
   | 'landing' | 'auth' | 'dash' | 'schedule' | 'schedDone' | 'detail'
   | 'recordings' | 'settings' | 'lobby' | 'waiting' | 'meeting' | 'post';
 
 export type PermState = 'prompt' | 'granted' | 'denied' | 'nodevice' | 'busy';
+
+export type VideoQuality = 'auto' | 'high' | 'saver';
+export type ShareMode = 'screen' | 'screen-audio' | 'audio';
+export type DeviceKind = 'mic' | 'cam' | 'speaker';
 
 export interface ChatMessage { who: string; text: string; mine: boolean; ts?: number; history?: boolean; }
 export interface Burst { id: number; name: string; x: string; }
@@ -50,6 +66,29 @@ const prefBool = (key: string, dflt: boolean): boolean => {
 const setPref = (key: string, on: boolean) => {
   try { localStorage.setItem(key, on ? '1' : '0'); } catch { /* private mode */ }
 };
+const prefStr = (key: string): string | null => {
+  try {
+    const v = localStorage.getItem(key);
+    return v === null || v === '' ? null : v;
+  } catch { return null; }
+};
+const setPrefStr = (key: string, value: string | null) => {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch { /* private mode */ }
+};
+
+const MIC_KEY = 'diss_mic', CAM_KEY = 'diss_cam', SPK_KEY = 'diss_spk', QUAL_KEY = 'diss_qual';
+
+const storedQuality = (): VideoQuality => {
+  const v = prefStr(QUAL_KEY);
+  return v === 'high' || v === 'saver' || v === 'auto' ? v : 'auto';
+};
+
+/** Capture resolution + publish encoding for each quality tier. */
+const qualityPreset = (q: VideoQuality): VideoPreset =>
+  q === 'high' ? VideoPresets.h1080 : q === 'saver' ? VideoPresets.h360 : VideoPresets.h720;
 
 let blurSupported = false;
 try { blurSupported = supportsBackgroundProcessors(); } catch { blurSupported = false; }
@@ -122,6 +161,16 @@ export interface AppState {
   captionsOn: boolean; captionLines: CaptionLine[];
   // media prefs (persisted)
   blurOn: boolean; nsOn: boolean; blurSupported: boolean;
+  joinMuted: boolean; joinCamOff: boolean;
+  // real devices
+  devices: DeviceLists;
+  micId: string | null; camId: string | null; speakerId: string | null;
+  canPickSpeaker: boolean;
+  videoQuality: VideoQuality;
+  // screen share detail
+  shareHasAudio: boolean; shareAudioOnly: boolean;
+  // viewport
+  isNarrow: boolean;
   // grid pagination
   gridPage: number;
   // post
@@ -155,6 +204,13 @@ const initial: AppState = {
   recOn: false, recBusy: false,
   captionsOn: false, captionLines: [],
   blurOn: prefBool('diss_blur', false), nsOn: prefBool('diss_ns', true), blurSupported,
+  joinMuted: prefBool('diss_joinmuted', false), joinCamOff: prefBool('diss_joincamoff', false),
+  devices: { mics: [], cams: [], speakers: [] },
+  micId: prefStr(MIC_KEY), camId: prefStr(CAM_KEY), speakerId: prefStr(SPK_KEY),
+  canPickSpeaker: canSelectSpeaker(),
+  videoQuality: storedQuality(),
+  shareHasAudio: false, shareAudioOnly: false,
+  isNarrow: typeof window !== 'undefined' && window.matchMedia('(max-width: 759px)').matches,
   gridPage: 0,
   rating: 0, issues: [], ratedDone: false, postKind: 'left',
   protoOpen: false, devParticipantCount: 5, devRole: 'host',
@@ -204,7 +260,8 @@ export interface Store {
   endForAll: () => Promise<void>;
   toggleMic: () => void;
   toggleCam: () => void;
-  toggleShare: () => void;
+  /** Called again while sharing (any mode) stops the share. Defaults to plain video sharing. */
+  toggleShare: (mode?: ShareMode) => Promise<void>;
   toggleHand: () => void;
   sendReaction: (emoji: string) => void;
   togglePanel: (tab: 'chat' | 'people') => void;
@@ -219,10 +276,16 @@ export interface Store {
   setMeetingFlag: (body: { waitingRoom?: boolean; locked?: boolean }) => Promise<void>;
   // media extras
   toggleCaptions: () => void;
+  toggleJoinPref: (kind: 'muted' | 'camOff') => void;
   toggleBlur: () => void;
   toggleNs: () => void;
   togglePip: () => void;
   getRoom: () => Room | null;
+  // real devices
+  refreshDevices: () => Promise<void>;
+  selectDevice: (kind: DeviceKind, deviceId: string | null) => Promise<void>;
+  setVideoQuality: (q: VideoQuality) => Promise<void>;
+  testSpeaker: () => Promise<void>;
   allowAccess: () => Promise<void>;
   copyLink: () => void;
   wake: () => void;
@@ -254,6 +317,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // local speech recognition for captions
   const speechRef = useRef<SpeechRecognitionLike | null>(null);
   const captionNotedRef = useRef(false);
+  // hidden <audio> elements playing remote screen-share audio, keyed by track sid
+  const shareAudioRef = useRef<Map<string, HTMLAudioElement>>(new Map());
 
   const store = useMemo<Store>(() => {
     const go: Store['go'] = (screen, extra) => patch({ screen, protoOpen: false, newMenuOpen: false, ...extra });
@@ -267,6 +332,61 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const stopPreview = () => {
       streamRef.current?.getTracks().forEach(t => t.stop());
       streamRef.current = null;
+    };
+
+    // ── real devices ──────────────────────────────────────────────────────────
+    /** Re-enumerate inputs/outputs. Labels only appear once permission is granted. */
+    const refreshDevices = async () => {
+      const devices = await listDevices();
+      const st = ref.current;
+      // Drop remembered ids whose device is gone, so we fall back to the system default.
+      const alive = (id: string | null, list: MediaDeviceInfo[]) =>
+        id && list.some(d => d.deviceId === id) ? id : id && list.length === 0 ? id : null;
+      patch({
+        devices,
+        micId: alive(st.micId, devices.mics),
+        camId: alive(st.camId, devices.cams),
+        speakerId: alive(st.speakerId, devices.speakers),
+      });
+    };
+
+    /** Start (or restart) the lobby preview with the currently selected devices. */
+    const startPreview = async (): Promise<void> => {
+      stopPreview();
+      const st = ref.current;
+      const want = (id: string | null): MediaTrackConstraints | true =>
+        id ? { deviceId: { exact: id } } : true;
+      const attempts: MediaStreamConstraints[] = [
+        { audio: want(st.micId), video: want(st.camId) },
+        // Remembered device unplugged → fall back to whatever the system offers.
+        { audio: true, video: true },
+      ];
+      for (const constraints of attempts) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          streamRef.current = stream;
+          patch({ permState: 'granted', realCam: stream.getVideoTracks().length > 0, joinError: null });
+          await refreshDevices();
+          return;
+        } catch (e) {
+          const name = (e as DOMException | undefined)?.name;
+          if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') continue;
+          if (name === 'NotAllowedError' || name === 'SecurityError') { patch({ permState: 'denied' }); return; }
+          if (name === 'NotReadableError' || name === 'AbortError' || name === 'TrackStartError') { patch({ permState: 'busy' }); return; }
+          if (name === 'NotFoundError' || name === 'DevicesNotFoundError') break;
+          patch({ permState: 'denied' });
+          return;
+        }
+      }
+      // No camera (or nothing matched): still try for audio so the mic meter works.
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        streamRef.current = stream;
+        patch({ permState: 'nodevice', realCam: false });
+        await refreshDevices();
+      } catch {
+        patch({ permState: 'nodevice', realCam: false });
+      }
     };
 
     // ── LiveKit → state sync ──────────────────────────────────────────────────
@@ -288,7 +408,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           isLocal,
           micOn: !!micPub && !micPub.isMuted,
           camOn: !!camPub && !camPub.isMuted && !!camPub.track,
-          sharing: !!scrPub && !scrPub.isMuted,
+          // A computer-audio-only share publishes no video track, but the person
+          // is still sharing something.
+          sharing: (!!scrPub && !scrPub.isMuted)
+            || !!p.getTrackPublication(Track.Source.ScreenShareAudio),
           speaking: speakers.has(p.identity),
           hand: handRef.current.get(p.identity) ?? false,
           isHost: isLocal ? ref.current.isHost : p.identity === hostIdentity,
@@ -306,14 +429,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const you = peers.find(p => p.isLocal);
       const wasCoHost = ref.current.isCoHost;
       const isCoHost = !!you?.isCoHost;
-      patch({
+      const stillSharing = !!you?.sharing;
+      patch(st => ({
         peers,
         micMuted: you ? !you.micOn : true,
         camOff: you ? !you.camOn : true,
-        sharing: you ? you.sharing : false,
+        sharing: stillSharing,
+        // The browser's own "Stop sharing" bar bypasses toggleShare — reset here too.
+        shareHasAudio: stillSharing && st.shareHasAudio,
+        shareAudioOnly: stillSharing && st.shareAudioOnly,
         hand: you ? you.hand : false,
         isCoHost,
-      });
+      }));
       if (isCoHost !== wasCoHost && !ref.current.isHost) {
         toast(isCoHost ? "You're a co-host now — you can mute, remove, and admit people" : "You're no longer a co-host");
       }
@@ -431,6 +558,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try { rec.start(); } catch { speechRef.current = null; }
     };
 
+    // ── remote screen-share audio ────────────────────────────────────────────
+    // Nothing in the tile UI renders a ScreenShareAudio track, so the media layer
+    // owns playback: a hidden <audio> per subscribed track, on the chosen speaker.
+    const attachShareAudio = (track: RemoteTrack, pub: RemoteTrackPublication) => {
+      if (pub.source !== Track.Source.ScreenShareAudio || track.kind !== Track.Kind.Audio) return;
+      if (shareAudioRef.current.has(pub.trackSid)) return;
+      const el = track.attach() as HTMLAudioElement;
+      el.autoplay = true;
+      el.style.display = 'none';
+      document.body.appendChild(el);
+      shareAudioRef.current.set(pub.trackSid, el);
+      applySinkId(el, ref.current.speakerId).catch(() => {});
+      el.play().catch(() => { /* autoplay policy — the meeting already has a gesture */ });
+    };
+
+    const detachShareAudio = (track: RemoteTrack, pub: RemoteTrackPublication) => {
+      const el = shareAudioRef.current.get(pub.trackSid);
+      if (!el) return;
+      shareAudioRef.current.delete(pub.trackSid);
+      try { track.detach(el); } catch { /* already detached */ }
+      el.remove();
+    };
+
+    const clearShareAudio = () => {
+      shareAudioRef.current.forEach(el => { el.pause(); el.srcObject = null; el.remove(); });
+      shareAudioRef.current.clear();
+    };
+
     const wireRoom = (room: Room) => {
       room
         .on(RoomEvent.ParticipantConnected, p => {
@@ -445,8 +600,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .on(RoomEvent.ParticipantDisconnected, p => { handRef.current.delete(p.identity); sync(); })
         .on(RoomEvent.TrackPublished, sync)
         .on(RoomEvent.TrackUnpublished, sync)
-        .on(RoomEvent.TrackSubscribed, sync)
-        .on(RoomEvent.TrackUnsubscribed, sync)
+        .on(RoomEvent.TrackSubscribed, (track, pub) => { attachShareAudio(track, pub); sync(); })
+        .on(RoomEvent.TrackUnsubscribed, (track, pub) => { detachShareAudio(track, pub); sync(); })
         .on(RoomEvent.TrackMuted, sync)
         .on(RoomEvent.TrackUnmuted, sync)
         .on(RoomEvent.LocalTrackPublished, sync)
@@ -462,6 +617,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .on(RoomEvent.Disconnected, () => {
           roomRef.current = null;
           stopCaptionEngine();
+          clearShareAudio();
           if (!leavingRef.current && ref.current.screen === 'meeting') {
             patch({
               screen: 'post', postKind: 'ended', peers: [], panel: false, leaveOpen: false,
@@ -482,6 +638,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       leavingRef.current = true;
       stopCaptionEngine();
       stopWaitingPoll();
+      clearShareAudio();
       const room = roomRef.current;
       roomRef.current = null;
       handRef.current = new Map();
@@ -537,6 +694,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       go('lobby', {
         meeting: m, permState: 'prompt', joinError: null, joining: false,
         lobbyName: ref.current.lobbyName || ref.current.user?.name || '',
+        lobbyMic: !ref.current.joinMuted, lobbyCam: !ref.current.joinCamOff,
       });
     };
 
@@ -606,8 +764,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const connectWithToken = async ({ token, url, identity, isHost }: TokenResponse) => {
       const st = ref.current;
       stopPreview();
+      const preset = qualityPreset(st.videoQuality);
       const room = new Room({
-        audioCaptureDefaults: { noiseSuppression: st.nsOn, echoCancellation: st.nsOn },
+        // Only send/receive what's actually on screen.
+        adaptiveStream: true,
+        dynacast: true,
+        audioCaptureDefaults: {
+          noiseSuppression: st.nsOn,
+          echoCancellation: st.nsOn,
+          ...(st.micId ? { deviceId: st.micId } : {}),
+        },
+        videoCaptureDefaults: {
+          resolution: preset.resolution,
+          ...(st.camId ? { deviceId: st.camId } : {}),
+        },
+        publishDefaults: {
+          simulcast: true,
+          videoEncoding: preset.encoding,
+          screenShareEncoding: ScreenSharePresets.h1080fps15.encoding,
+        },
       });
       wireRoom(room);
       roomRef.current = room;
@@ -623,8 +798,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         connQuality: ConnectionQuality.Unknown, protoOpen: false,
         waitingId: null, waitingDenied: false, waitingGuests: [],
         isCoHost: false, recOn: false, captionLines: [], gridPage: 0,
+        shareHasAudio: false, shareAudioOnly: false,
       });
       window.setTimeout(() => patch({ youreIn: false }), 1400);
+      if (st.speakerId && canSelectSpeaker()) {
+        room.switchActiveDevice('audiooutput', st.speakerId).catch(() => { /* device vanished */ });
+      }
       try {
         if (st.lobbyMic) await room.localParticipant.setMicrophoneEnabled(true);
         if (st.lobbyCam) await room.localParticipant.setCameraEnabled(true);
@@ -766,13 +945,146 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .catch(() => toast("Couldn't switch your camera — check browser permissions"));
     };
 
-    const toggleShare = () => {
+    /** Tear down whatever kind of share is running (video, video+audio, or audio only). */
+    const stopSharing = async () => {
       const room = roomRef.current;
-      if (!room) { patch(st => ({ sharing: !st.sharing })); return; }
-      const enable = !ref.current.sharing;
-      room.localParticipant.setScreenShareEnabled(enable)
-        .then(() => { sync(); if (enable && ref.current.sharing) toast('You started sharing — everyone sees your screen'); })
-        .catch(() => { /* user cancelled the picker */ });
+      if (!room) return;
+      const lp = room.localParticipant;
+      try {
+        await lp.setScreenShareEnabled(false);
+      } catch { /* nothing published, or already gone */ }
+      // Audio-only shares are published by hand, so unpublish them by hand too.
+      const audioPub = lp.getTrackPublication(Track.Source.ScreenShareAudio);
+      if (audioPub?.track) {
+        try { await lp.unpublishTrack(audioPub.track as LocalTrack, true); } catch { /* already gone */ }
+      }
+      patch({ sharing: false, shareHasAudio: false, shareAudioOnly: false });
+      sync();
+    };
+
+    const toggleShare = async (requested: ShareMode = 'screen') => {
+      const room = roomRef.current;
+      if (!room) {
+        // Dev preview of the meeting screen — no room to publish to.
+        patch(st => ({ sharing: !st.sharing, shareHasAudio: false, shareAudioOnly: false }));
+        return;
+      }
+      if (ref.current.sharing) { await stopSharing(); return; }
+
+      let mode = requested;
+      if (mode !== 'screen' && !canCaptureDisplayAudio()) {
+        toast(mode === 'audio'
+          ? "This browser can't share computer sound — try Chrome or Edge"
+          : "This browser can't capture screen audio — sharing the picture only. Try Chrome or Edge for sound.");
+        if (mode === 'audio') return;
+        mode = 'screen';
+      }
+
+      const lp = room.localParticipant;
+      try {
+        if (mode === 'audio') {
+          // getDisplayMedia always needs a surface; we publish only its audio and
+          // drop the video immediately, so nobody sees a picture.
+          const tracks = await lp.createScreenTracks({
+            audio: true,
+            video: true,
+            systemAudio: 'include',
+            selfBrowserSurface: 'include',
+          });
+          const audio = tracks.find(t => t.kind === Track.Kind.Audio);
+          tracks.filter(t => t !== audio).forEach(t => { t.stop(); });
+          if (!audio) {
+            toast("No computer sound was shared — tick “Share tab audio” in the picker and try again");
+            return;
+          }
+          await lp.publishTrack(audio, { source: Track.Source.ScreenShareAudio });
+          patch({ sharing: true, shareHasAudio: true, shareAudioOnly: true });
+          sync();
+          toast('Sharing your computer sound — no video, just audio');
+          return;
+        }
+
+        await lp.setScreenShareEnabled(true, {
+          audio: mode === 'screen-audio',
+          ...(mode === 'screen-audio' ? { systemAudio: 'include' as const } : {}),
+          contentHint: 'motion',
+        });
+        const gotAudio = !!lp.getTrackPublication(Track.Source.ScreenShareAudio);
+        patch({ sharing: true, shareHasAudio: gotAudio, shareAudioOnly: false });
+        sync();
+        if (mode === 'screen-audio' && !gotAudio) {
+          toast("You're sharing — but no sound came through. Tick “Share tab audio” in the picker to include it.");
+        } else {
+          toast(gotAudio
+            ? 'You started sharing — everyone sees your screen and hears its sound'
+            : 'You started sharing — everyone sees your screen');
+        }
+      } catch {
+        // Almost always the user dismissing the picker.
+        patch({ shareHasAudio: false, shareAudioOnly: false });
+        sync();
+      }
+    };
+
+    // ── device selection / quality ────────────────────────────────────────────
+    const selectDevice = async (kind: DeviceKind, deviceId: string | null) => {
+      const key = kind === 'mic' ? MIC_KEY : kind === 'cam' ? CAM_KEY : SPK_KEY;
+      setPrefStr(key, deviceId);
+      patch(kind === 'mic' ? { micId: deviceId } : kind === 'cam' ? { camId: deviceId } : { speakerId: deviceId });
+
+      const room = roomRef.current;
+      if (kind === 'speaker') {
+        if (!canSelectSpeaker()) return;
+        // Re-point every element we own; LiveKit handles the ones it attached.
+        await Promise.all(Array.from(shareAudioRef.current.values()).map(el => applySinkId(el, deviceId)));
+        if (room) {
+          try { await room.switchActiveDevice('audiooutput', deviceId ?? 'default'); }
+          catch { toast("Couldn't switch your speaker — that device may be unavailable"); }
+        }
+        return;
+      }
+
+      const lkKind: MediaDeviceKind = kind === 'mic' ? 'audioinput' : 'videoinput';
+      if (room) {
+        try {
+          await room.switchActiveDevice(lkKind, deviceId ?? 'default');
+          if (kind === 'cam' && ref.current.blurOn) applyBlur(true).catch(() => {});
+          sync();
+        } catch {
+          toast(kind === 'mic'
+            ? "Couldn't switch your microphone — that device may be in use"
+            : "Couldn't switch your camera — that device may be in use");
+        }
+        return;
+      }
+      // Lobby: restart the preview so the change is visible/audible immediately.
+      if (ref.current.screen === 'lobby' || streamRef.current) await startPreview();
+    };
+
+    const setVideoQuality = async (q: VideoQuality) => {
+      setPrefStr(QUAL_KEY, q);
+      patch({ videoQuality: q });
+      const room = roomRef.current;
+      if (!room) return;
+      const preset = qualityPreset(q);
+      // Future publishes (camera re-enable, reconnect) pick the new tier up too.
+      room.options.videoCaptureDefaults = { ...room.options.videoCaptureDefaults, resolution: preset.resolution };
+      room.options.publishDefaults = { ...room.options.publishDefaults, simulcast: true, videoEncoding: preset.encoding };
+      const track = room.localParticipant.getTrackPublication(Track.Source.Camera)?.track as LocalVideoTrack | undefined;
+      if (!track) return;
+      try {
+        await track.restartTrack({
+          resolution: preset.resolution,
+          ...(ref.current.camId ? { deviceId: ref.current.camId } : {}),
+        });
+        if (ref.current.blurOn) applyBlur(true).catch(() => {});
+        sync();
+        toast(q === 'high' ? 'Hi-Res video on — 1080p when your connection allows'
+          : q === 'saver' ? 'Data saver on — lower resolution, less bandwidth'
+          : 'Video quality set to automatic');
+      } catch {
+        toast("Couldn't change your video quality — your camera may not support it");
+      }
     };
 
     const toggleHand = () => {
@@ -895,6 +1207,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       window.setTimeout(syncCaptionEngine, 0);
     };
 
+    /** "Mute my mic when I join" / "Turn my camera off when I join" (persisted). */
+    const toggleJoinPref = (kind: 'muted' | 'camOff') => {
+      if (kind === 'muted') {
+        const on = !ref.current.joinMuted;
+        setPref('diss_joinmuted', on);
+        patch({ joinMuted: on });
+      } else {
+        const on = !ref.current.joinCamOff;
+        setPref('diss_joincamoff', on);
+        patch({ joinCamOff: on });
+      }
+    };
+
     const toggleBlur = () => {
       const on = !ref.current.blurOn;
       patch({ blurOn: on, moreOpen: false });
@@ -938,7 +1263,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toggleMic, toggleCam, toggleShare, toggleHand, sendReaction, sendChat,
       moderatePeer, muteAll,
       cancelWaiting, actOnWaiting, setMeetingFlag,
-      toggleCaptions, toggleBlur, toggleNs, togglePip,
+      toggleCaptions, toggleJoinPref, toggleBlur, toggleNs, togglePip,
       getRoom: () => roomRef.current,
       togglePanel: (tab) => patch(st => ({
         panel: st.panel && st.tab === tab ? false : true,
@@ -946,19 +1271,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         unread: tab === 'chat' ? 0 : st.unread,
       })),
       toggleRec,
-      allowAccess: async () => {
+      refreshDevices, selectDevice, setVideoQuality,
+      testSpeaker: async () => {
+        if (ref.current.speakerTesting) return;
+        patch({ speakerTesting: true });
         try {
-          const st = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-          streamRef.current = st;
-          patch({ permState: 'granted', realCam: true });
-        } catch (e) {
-          const name = (e as DOMException | undefined)?.name;
-          if (name === 'NotAllowedError' || name === 'SecurityError') patch({ permState: 'denied' });
-          else if (name === 'NotFoundError') patch({ permState: 'nodevice' });
-          else if (name === 'NotReadableError' || name === 'AbortError') patch({ permState: 'busy' });
-          else patch({ permState: 'granted', realCam: false });
+          await playTestTone(ref.current.speakerId ?? undefined);
+        } catch {
+          toast("Couldn't play a test sound on that speaker");
+        } finally {
+          patch({ speakerTesting: false });
         }
       },
+      allowAccess: startPreview,
       copyLink: () => {
         const code = ref.current.meeting?.code;
         if (!code) { toast('No meeting link yet'); return; }
@@ -1002,6 +1327,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (joinCode) store.openCode(joinCode);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Real devices: enumerate once, then follow plug/unplug events. Labels stay
+  // blank until permission is granted, so allowAccess() re-runs this itself.
+  useEffect(() => {
+    store.refreshDevices();
+    const md = navigator.mediaDevices;
+    if (!md?.addEventListener) return;
+    const onChange = () => { store.refreshDevices(); };
+    md.addEventListener('devicechange', onChange);
+    return () => md.removeEventListener('devicechange', onChange);
+  }, [store]);
+
+  // Viewport width (contract: narrow < 760px)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 759px)');
+    const onChange = () => patch({ isNarrow: mq.matches });
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
   }, []);
 
   // clock + elapsed
