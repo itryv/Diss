@@ -9,6 +9,23 @@ export interface UserRow {
   password_hash: string;
   password_salt: string;
   created_at: string;
+  disabled: number; // 0 | 1 — a disabled user cannot log in
+}
+
+export interface SettingsRow {
+  key: string;
+  value: string;
+}
+
+export interface AdminAuditRow {
+  id: string;
+  actor_user_id: string;
+  actor_email: string;
+  action: string;
+  target_type: string;
+  target_id: string | null;
+  detail: string | null;
+  created_at: string;
 }
 
 export interface SessionRow {
@@ -90,7 +107,8 @@ export function openDb(databasePath: string): Database.Database {
       email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
       password_hash TEXT NOT NULL,
       password_salt TEXT NOT NULL,
-      created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      disabled      INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS sessions (
@@ -160,6 +178,23 @@ export function openDb(databasePath: string): Database.Database {
       ended_at   TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_recordings_meeting ON recordings(meeting_id);
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS admin_audit (
+      id            TEXT PRIMARY KEY,
+      actor_user_id TEXT NOT NULL,
+      actor_email   TEXT NOT NULL,
+      action        TEXT NOT NULL,
+      target_type   TEXT NOT NULL,
+      target_id     TEXT,
+      detail        TEXT,
+      created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit(created_at);
   `);
 
   // v2 migration: add waiting_room / locked to meetings created before v2,
@@ -194,6 +229,16 @@ export function openDb(databasePath: string): Database.Database {
   }
   if (!messageCols.includes("mentions")) {
     db.exec("ALTER TABLE messages ADD COLUMN mentions TEXT NOT NULL DEFAULT '[]'");
+  }
+
+  // admin migration: `disabled` on users. Same PRAGMA guard — every existing
+  // row keeps its data and defaults to enabled (0), and re-running is a no-op.
+  // The `settings` and `admin_audit` tables above are CREATE TABLE IF NOT
+  // EXISTS, so they are equally additive. `admin_audit` deliberately has no
+  // foreign key to users: deleting a user must not erase the record of it.
+  const userCols = (db.pragma("table_info(users)") as { name: string }[]).map((c) => c.name);
+  if (!userCols.includes("disabled")) {
+    db.exec("ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0");
   }
   return db;
 }

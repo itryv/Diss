@@ -10,7 +10,7 @@ const inputStyle: React.CSSProperties = { width: '100%', background: '#1c1815', 
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 13, fontWeight: 600, color: '#a3988a', marginBottom: 7 };
 const selectStyle: React.CSSProperties = { width: '100%', background: '#1c1815', border: '1px solid #3a332b', borderRadius: 12, padding: '13px 10px', color: '#f4eee5', fontSize: 14, fontFamily: 'inherit', outline: 'none' };
 
-function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+export function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   return (
     <span onClick={onToggle} style={{ width: 38, height: 22, borderRadius: 99, background: on ? '#f08b5f' : '#3a332b', position: 'relative', transition: 'background .15s', flexShrink: 0, cursor: 'pointer' }}>
       <span style={{ position: 'absolute', top: 3, left: on ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#f4eee5', transition: 'left .15s' }} />
@@ -36,11 +36,56 @@ function useToggleList(key: 'schedOpts' | 'avOpts' | 'notifOpts') {
   };
 }
 
-function NavButton({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
+function NavButton({ icon, label, active, onClick, nowrap }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; nowrap?: boolean }) {
   return (
-    <button className="hv-bg-2a" onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 11, background: active ? '#2a241e' : 'none', color: active ? '#f4eee5' : '#a3988a', border: 'none', borderRadius: 10, padding: '11px 12px', fontSize: 14.5, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}>
+    <button className="hv-bg-2a" onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 11, background: active ? '#2a241e' : 'none', color: active ? '#f4eee5' : '#a3988a', border: 'none', borderRadius: 10, padding: nowrap ? 10 : '11px 12px', minHeight: 44, fontSize: 14.5, fontWeight: 600, cursor: 'pointer', textAlign: 'left', whiteSpace: nowrap ? 'nowrap' : undefined }}>
       <span style={{ display: 'inline-flex' }}>{icon}</span>{label}
     </button>
+  );
+}
+
+/**
+ * The app sidebar.
+ *
+ * `row` lays it out as the scrollable top bar that index.css produces below
+ * 760px — the admin screen paints its own surface, so it asks for that layout
+ * in JS instead of inheriting the stylesheet's `.shell-screen` rules.
+ */
+export function ShellNav({ row = false }: { row?: boolean }) {
+  const app = useApp();
+  const s = app.s;
+  const navStyle: React.CSSProperties = row
+    ? {
+        width: '100%', flexShrink: 0, background: '#1a1613', borderBottom: '1px solid #2a241e',
+        display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 6,
+        padding: 'calc(8px + var(--sat)) calc(10px + var(--sar)) 8px calc(10px + var(--sal))',
+        overflowX: 'auto', scrollbarWidth: 'none',
+      }
+    : {
+        width: 232, flexShrink: 0, background: '#1a1613', borderRight: '1px solid #2a241e',
+        display: 'flex', flexDirection: 'column', padding: '20px 12px',
+      };
+  return (
+    <nav style={navStyle}>
+      <div onClick={() => app.go('dash')} style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: row ? 20 : 22, padding: row ? '0 10px 0 4px' : '4px 12px 20px', cursor: 'pointer', flexShrink: 0 }}>diss<span style={{ color: '#f08b5f' }}>.</span></div>
+      <div style={{ display: 'flex', flexDirection: row ? 'row' : 'column', gap: row ? 6 : 2 }}>
+        <NavButton icon={<Ic name="home" size={18} />} label="Home" active={s.screen === 'dash'} onClick={() => app.go('dash')} nowrap={row} />
+        <NavButton icon={<Ic name="grid" size={17} />} label="Meetings" active={s.screen === 'detail'} onClick={() => app.go('dash')} nowrap={row} />
+        <NavButton icon={<Ic name="disc" size={17} />} label="Recordings" active={s.screen === 'recordings'} onClick={() => app.go('recordings')} nowrap={row} />
+        <NavButton icon={<Ic name="gear" size={17} />} label="Settings" active={s.screen === 'settings'} onClick={() => app.go('settings')} nowrap={row} />
+        {/* Admin contract §8: the entry simply does not exist for anyone else. */}
+        {s.user?.isAdmin && (
+          <NavButton icon={<Ic name="lock" size={17} />} label="Admin" active={s.screen === 'admin'} onClick={() => app.go('admin')} nowrap={row} />
+        )}
+      </div>
+      <div className="hv-bg-2a" onClick={() => app.go('settings', { settingsTab: 'account' })} style={{ marginTop: 'auto', display: row ? 'none' : 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, cursor: 'pointer' }}>
+        <span style={{ width: 32, height: 32, borderRadius: '50%', background: '#8a5a44', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 12, flexShrink: 0 }}>{(s.user?.name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}</span>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.user?.name ?? 'Guest'}</div>
+          <div style={{ fontSize: 12, color: '#8a7f70', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.user?.email ?? ''}</div>
+        </div>
+      </div>
+    </nav>
   );
 }
 
@@ -429,22 +474,7 @@ export function Shell() {
   const s = app.s;
   return (
     <section style={{ display: 'flex', minHeight: '100vh' }}>
-      <nav style={{ width: 232, flexShrink: 0, background: '#1a1613', borderRight: '1px solid #2a241e', display: 'flex', flexDirection: 'column', padding: '20px 12px' }}>
-        <div onClick={() => app.go('dash')} style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 22, padding: '4px 12px 20px', cursor: 'pointer' }}>diss<span style={{ color: '#f08b5f' }}>.</span></div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <NavButton icon={<Ic name="home" size={18} />} label="Home" active={s.screen === 'dash'} onClick={() => app.go('dash')} />
-          <NavButton icon={<Ic name="grid" size={17} />} label="Meetings" active={s.screen === 'detail'} onClick={() => app.go('dash')} />
-          <NavButton icon={<Ic name="disc" size={17} />} label="Recordings" active={s.screen === 'recordings'} onClick={() => app.go('recordings')} />
-          <NavButton icon={<Ic name="gear" size={17} />} label="Settings" active={s.screen === 'settings'} onClick={() => app.go('settings')} />
-        </div>
-        <div className="hv-bg-2a" onClick={() => app.go('settings', { settingsTab: 'account' })} style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, cursor: 'pointer' }}>
-          <span style={{ width: 32, height: 32, borderRadius: '50%', background: '#8a5a44', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 12, flexShrink: 0 }}>{(s.user?.name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}</span>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.user?.name ?? 'Guest'}</div>
-            <div style={{ fontSize: 12, color: '#8a7f70', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.user?.email ?? ''}</div>
-          </div>
-        </div>
-      </nav>
+      <ShellNav />
       <main style={{ flex: 1, minWidth: 0, padding: '36px 44px', maxWidth: 1060 }}>
         {s.screen === 'dash' && <Dashboard />}
         {s.screen === 'schedule' && <Schedule />}

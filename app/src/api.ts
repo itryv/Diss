@@ -1,7 +1,17 @@
 // Typed client for the Diss backend (see ../docs/api-contract.md).
 // All requests go through the Vite dev proxy: /api → http://localhost:8787.
 
-export interface User { id: number | string; name: string; email: string; }
+export interface User {
+  id: number | string;
+  name: string;
+  email: string;
+  /**
+   * Admin contract §0 — derived on the server from `ADMIN_EMAILS`, never
+   * grantable through the API. Optional in the type only so an older server
+   * (which doesn't send it) still signs people in; absent === not an admin.
+   */
+  isAdmin?: boolean;
+}
 
 export interface Meeting {
   id: number | string;
@@ -99,6 +109,104 @@ export interface Recording {
   endedAt: string | null;
   sizeBytes: number | null;
 }
+
+// ── Admin dashboard (docs/api-contract-admin.md) ─────────────────────────────
+// Everything below needs a session whose user is in ADMIN_EMAILS; anything else
+// gets a 403 with an {error} body, which `req` turns into an ApiError.
+
+export interface AdminOverview {
+  users: { total: number; disabled: number; admins: number };
+  meetings: { total: number; scheduled: number; live: number };
+  recordings: { count: number; bytes: number };
+  messages: { total: number };
+  storage: { dbBytes: number; recordingsBytes: number; diskFreeBytes: number };
+  /** `reachable:false` means the numbers here are unknown, NOT zero. */
+  livekit: { reachable: boolean; rooms: number; participants: number; error?: string };
+  server: { uptimeS: number; nodeVersion: string; startedAt: string };
+}
+
+export interface AdminUser {
+  id: number | string;
+  name: string;
+  email: string;
+  isAdmin: boolean;
+  disabled: boolean;
+  createdAt: string;
+  meetingCount: number;
+  lastSeenAt: string | null;
+}
+
+export interface AdminMeeting extends Meeting {
+  hostEmail: string;
+  live: boolean;
+  participantCount: number;
+  messageCount: number;
+  recordingCount: number;
+}
+
+export interface LiveParticipant {
+  identity: string;
+  name: string;
+  joinedAt: string;
+  isPublishing: boolean;
+  isHost: boolean;
+}
+
+export interface LiveRoom {
+  /** LiveKit room name — the join code, or `<code>__b<idx>` for a breakout. */
+  name: string;
+  meetingCode: string;
+  meetingTitle: string;
+  hostName: string;
+  numParticipants: number;
+  startedAt: string;
+  participants: LiveParticipant[];
+}
+
+export interface AdminRecording {
+  id: number | string;
+  meetingCode: string;
+  meetingTitle: string;
+  hostName: string;
+  startedAt: string;
+  endedAt: string | null;
+  sizeBytes: number | null;
+  /** The DB row exists but the file on disk doesn't. */
+  missing?: boolean;
+}
+
+export interface AdminSettings {
+  registrationOpen: boolean;
+  defaultAllowShare: boolean;
+  defaultAllowChat: boolean;
+  defaultAllowUnmute: boolean;
+  defaultWaitingRoom: boolean;
+}
+
+/**
+ * One row of `admin_audit`. The snake_case aliases are deliberate: the contract
+ * specifies the COLUMN names, not the JSON casing, so accept either rather than
+ * render blank cells if the server serialises the row as-is.
+ */
+export interface AuditEntry {
+  id: number | string;
+  actorEmail?: string; actor_email?: string;
+  actorUserId?: number | string; actor_user_id?: number | string;
+  action: string;
+  targetType?: string; target_type?: string;
+  targetId?: number | string | null; target_id?: number | string | null;
+  detail?: string | null;
+  createdAt?: string; created_at?: string;
+}
+
+const qs = (params: Record<string, string | number | boolean | undefined>): string => {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== '') sp.set(k, String(v));
+  }
+  const s = sp.toString();
+  return s ? `?${s}` : '';
+};
 
 export class ApiError extends Error {
   status: number;
@@ -207,6 +315,46 @@ export const api = {
   listRecordings: () => req<{ recordings: Recording[] }>('/recordings'),
   deleteRecording: (id: number | string) =>
     req<void>(`/recordings/${encodeURIComponent(String(id))}`, { method: 'DELETE' }),
+
+  // ── Admin (contract: docs/api-contract-admin.md) ──────────────────────────
+  admin: {
+    overview: () => req<AdminOverview>('/admin/overview'),
+
+    users: (p: { q?: string; limit?: number; offset?: number } = {}) =>
+      req<{ users: AdminUser[]; total: number }>(`/admin/users${qs(p)}`),
+    setUserDisabled: (id: number | string, disabled: boolean) =>
+      req<{ user: AdminUser }>(`/admin/users/${encodeURIComponent(String(id))}`, {
+        method: 'PATCH', json: { disabled },
+      }),
+    deleteUser: (id: number | string) =>
+      req<void>(`/admin/users/${encodeURIComponent(String(id))}`, { method: 'DELETE' }),
+
+    meetings: (p: { q?: string; live?: 1 | ''; limit?: number; offset?: number } = {}) =>
+      req<{ meetings: AdminMeeting[]; total: number }>(`/admin/meetings${qs(p)}`),
+    deleteMeeting: (id: number | string) =>
+      req<void>(`/admin/meetings/${encodeURIComponent(String(id))}`, { method: 'DELETE' }),
+    /** Ends the live room without deleting the meeting. 409 when it isn't live. */
+    endMeeting: (id: number | string) =>
+      req<void>(`/admin/meetings/${encodeURIComponent(String(id))}/end`, { method: 'POST' }),
+
+    live: () => req<{ rooms: LiveRoom[]; reachable: boolean; error?: string }>('/admin/live'),
+    kick: (room: string, identity: string) =>
+      req<void>(`/admin/live/${encodeURIComponent(room)}/kick`, { method: 'POST', json: { identity } }),
+    endRoom: (room: string) =>
+      req<void>(`/admin/live/${encodeURIComponent(room)}/end`, { method: 'POST' }),
+
+    recordings: (p: { limit?: number; offset?: number } = {}) =>
+      req<{ recordings: AdminRecording[]; total: number; totalBytes: number }>(`/admin/recordings${qs(p)}`),
+    deleteRecording: (id: number | string) =>
+      req<void>(`/admin/recordings/${encodeURIComponent(String(id))}`, { method: 'DELETE' }),
+
+    settings: () => req<{ settings: AdminSettings }>('/admin/settings'),
+    patchSettings: (body: Partial<AdminSettings>) =>
+      req<{ settings: AdminSettings }>('/admin/settings', { method: 'PATCH', json: body }),
+
+    audit: (p: { limit?: number; offset?: number } = {}) =>
+      req<{ entries: AuditEntry[]; total: number }>(`/admin/audit${qs(p)}`),
+  },
 };
 
 /** URL that streams a recording's MP4 (cookie-authenticated). */

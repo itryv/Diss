@@ -6,6 +6,51 @@ export const fmtElapsed = (sec: number) => {
   return `${m < 10 ? '0' : ''}${m}:${sec % 60 < 10 ? '0' : ''}${sec % 60}`;
 };
 
+// ── Human-readable numbers (admin dashboard) ─────────────────────────────────
+
+/** Bytes as KB/MB/GB. `null`/undefined reads as an em dash, never "0 B". */
+export function fmtBytes(b: number | null | undefined): string {
+  if (b === null || b === undefined || !Number.isFinite(b)) return '—';
+  if (b >= 1024 ** 3) return `${(b / 1024 ** 3).toFixed(b >= 10 * 1024 ** 3 ? 0 : 1)} GB`;
+  if (b >= 1024 ** 2) return `${(b / 1024 ** 2).toFixed(b >= 10 * 1024 ** 2 ? 0 : 1)} MB`;
+  if (b >= 1024) return `${Math.round(b / 1024)} KB`;
+  return `${Math.max(0, Math.round(b))} B`;
+}
+
+/** Seconds as `3d 4h`, `4h 12m`, `12m 5s` — for server uptime. */
+export function fmtUptime(sec: number | null | undefined): string {
+  if (sec === null || sec === undefined || !Number.isFinite(sec)) return '—';
+  const s = Math.max(0, Math.floor(sec));
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60), rem = s % 60;
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  if (m) return `${m}m ${rem}s`;
+  return `${rem}s`;
+}
+
+/** Absolute date + time, or an em dash for a missing/unparseable timestamp. */
+export function fmtDateTime(iso: string | number | null | undefined): string {
+  if (iso === null || iso === undefined || iso === '') return '—';
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return '—';
+  const d = new Date(t);
+  return `${d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} · ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+}
+
+/** "just now" / "6m ago" / "3d ago" — compact enough for a table cell. */
+export function fmtAgo(iso: string | number | null | undefined): string {
+  if (iso === null || iso === undefined || iso === '') return 'never';
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return 'never';
+  const secs = Math.floor((Date.now() - t) / 1000);
+  if (secs < 60) return 'just now';
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+  if (secs < 86400 * 30) return `${Math.floor(secs / 86400)}d ago`;
+  return fmtDateTime(iso);
+}
+
 // ── Local tile order (drag-to-rearrange) ─────────────────────────────────────
 // The order is one person's private preference for one meeting: it is never
 // published, and it lives in localStorage keyed by the join code so a refresh

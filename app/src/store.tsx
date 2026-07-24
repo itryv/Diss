@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
+import { createContext, lazy, Suspense, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
 import type { ReactNode } from 'react';
 import {
   ConnectionQuality,
@@ -29,7 +29,25 @@ import {
 
 export type Screen =
   | 'landing' | 'auth' | 'dash' | 'schedule' | 'schedDone' | 'detail'
-  | 'recordings' | 'settings' | 'lobby' | 'waiting' | 'meeting' | 'post';
+  | 'recordings' | 'settings' | 'lobby' | 'waiting' | 'meeting' | 'post'
+  // Admin dashboard — only reachable when `user.isAdmin` (contract admin §8).
+  | 'admin';
+
+/**
+ * The admin dashboard is admin-only and comparatively large, so it is a lazy
+ * chunk: a normal user never downloads a byte of it.
+ *
+ * It mounts from the provider rather than from App.tsx's screen list because
+ * that list is owned by the media layer; the screen paints its own full-viewport
+ * surface (and its own copy of the shell nav) below the global toast layer.
+ */
+const AdminScreen = lazy(() => import('./screens/Admin'));
+
+const adminSurface: React.CSSProperties = {
+  position: 'fixed', inset: 0, overflowY: 'auto', zIndex: 40,
+  background: '#151210', color: '#f4eee5',
+  fontFamily: "'Instrument Sans',sans-serif", WebkitFontSmoothing: 'antialiased',
+};
 
 export type PermState = 'prompt' | 'granted' | 'denied' | 'nodevice' | 'busy';
 
@@ -1928,5 +1946,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // New object identity each render so consumers re-render with fresh state
   const value = useMemo(() => ({ ...store, s }), [store, s]);
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={value}>
+      {children}
+      {s.screen === 'admin' && (
+        <Suspense fallback={
+          <div style={{ ...adminSurface, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a7f70', fontSize: 14 }}>
+            Loading the admin dashboard…
+          </div>
+        }>
+          <AdminScreen />
+        </Suspense>
+      )}
+    </Ctx.Provider>
+  );
 }

@@ -6,9 +6,11 @@
  * Run: npm test
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import Database from "better-sqlite3";
 import { readEnv } from "../src/env.js";
 import { buildServer } from "../src/app.js";
 
@@ -41,13 +43,14 @@ interface Ctx {
   cookie?: string;
 }
 
-async function api(
+async function request(
+  baseUrl: string,
   method: string,
   path: string,
   ctx: Ctx = {},
   body?: unknown,
 ): Promise<{ status: number; json: any; setCookie: string | null }> {
-  const res = await fetch(base + path, {
+  const res = await fetch(baseUrl + path, {
     method,
     headers: {
       ...(body !== undefined ? { "content-type": "application/json" } : {}),
@@ -59,6 +62,9 @@ async function api(
   const text = await res.text();
   return { status: res.status, json: text ? JSON.parse(text) : null, setCookie };
 }
+
+const api = (method: string, path: string, ctx: Ctx = {}, body?: unknown) =>
+  request(base, method, path, ctx, body);
 
 function captureSession(ctx: Ctx, setCookie: string | null) {
   assert.ok(setCookie, "expected a Set-Cookie header");
@@ -74,6 +80,8 @@ function decodeJwtPayload(token: string): any {
   assert.equal(parts.length, 3, "token must be a three-part JWT");
   return JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8"));
 }
+
+let adminApp: Awaited<ReturnType<typeof buildServer>> | null = null;
 
 try {
   const host: Ctx = {};
@@ -1015,8 +1023,663 @@ try {
     ok("register rate limit returns 429 {error} after 10 requests per window");
   }
 
+  // ==================== admin API (docs/api-contract-admin.md) ====================
+  // A second server instance with its own DB, recordings dir and rate-limit
+  // counters: the admin surface changes global settings (registrationOpen, the
+  // default* meeting seeds) and deletes users, so it must not share state with
+  // the checks above.
+  {
+    const adminDir = join(tempDir, "admin");
+    const adminRecordings = join(adminDir, "recordings");
+    mkdirSync(adminRecordings, { recursive: true });
+    const adminEnv = readEnv({
+      PORT: 0,
+      DATABASE_PATH: join(adminDir, "diss.db"),
+      LIVEKIT_URL: "ws://localhost:7880",
+      // Unreachable on purpose: every LiveKit-touching admin route must degrade.
+      LIVEKIT_API_URL: "http://127.0.0.1:9",
+      EGRESS_ENABLED: false,
+      RECORDINGS_DIR: adminRecordings,
+      // Deliberately messy: extra spaces, an empty entry, and mixed case.
+      ADMIN_EMAILS: "  Admin@Example.COM , , MiXeD@Example.com ",
+    });
+    adminApp = await buildServer(adminEnv);
+    const adminBase = await adminApp.listen({ port: 0, host: "127.0.0.1" });
+    const aapi = (method: string, path: string, ctx: Ctx = {}, body?: unknown) =>
+      request(adminBase, method, path, ctx, body);
+
+    const adminDb = new Database(join(adminDir, "diss.db"));
+    const count = (table: string, where: string, ...args: any[]) =>
+      (adminDb.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${where}`).get(...args) as any).n;
+    const seedRecording = (meetingId: string, fileName: string, contents: string | null) => {
+      const id = randomUUID();
+      const now = new Date().toISOString();
+      adminDb
+        .prepare(
+          "INSERT INTO recordings (id, meeting_id, egress_id, file_name, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .run(id, meetingId, `eg-${id}`, fileName, now, now);
+      if (contents !== null) writeFileSync(join(adminRecordings, fileName), contents);
+      return id;
+    };
+
+    const admin: Ctx = {};
+    const alice: Ctx = {};
+    const victim: Ctx = {};
+    const mixed: Ctx = {};
+    let adminId: string;
+    let aliceId: string;
+    let victimId: string;
+    let mixedId: string;
+
+    {
+      const r = await aapi("POST", "/api/auth/register", {}, {
+        name: "Admin",
+        email: "admin@example.com",
+        password: "admin-passw0rd-1",
+      });
+      assert.equal(r.status, 201);
+      adminId = r.json.user.id;
+      captureSession(admin, r.setCookie);
+      const a = await aapi("POST", "/api/auth/register", {}, {
+        name: "Alice",
+        email: "alice@example.com",
+        password: "alice-passw0rd-1",
+      });
+      aliceId = a.json.user.id;
+      captureSession(alice, a.setCookie);
+      const v = await aapi("POST", "/api/auth/register", {}, {
+        name: "Victor Victim",
+        email: "victim@example.com",
+        password: "victim-passw0rd-1",
+      });
+      victimId = v.json.user.id;
+      captureSession(victim, v.setCookie);
+      const m = await aapi("POST", "/api/auth/register", {}, {
+        name: "Mixed Case Admin",
+        email: "mixed@example.com",
+        password: "mixed-passw0rd-1",
+      });
+      mixedId = m.json.user.id;
+      captureSession(mixed, m.setCookie);
+      ok("admin fixture: four users registered against a fresh instance");
+    }
+
+    // --- §0 identity ---
+    {
+      const r = await aapi("GET", "/api/auth/me", admin);
+      assert.equal(r.status, 200);
+      assert.equal(r.json.isAdmin, true);
+      assert.equal(r.json.user.isAdmin, true);
+      ok("me for an ADMIN_EMAILS user reports isAdmin true (envelope and user)");
+    }
+    {
+      const r = await aapi("GET", "/api/auth/me", alice);
+      assert.equal(r.json.isAdmin, false);
+      assert.equal(r.json.user.isAdmin, false);
+      ok("me for a normal user reports isAdmin false");
+    }
+    {
+      const r = await aapi("GET", "/api/auth/me", mixed);
+      assert.equal(r.json.isAdmin, true);
+      ok("ADMIN_EMAILS matching is case-insensitive and trims whitespace");
+    }
+
+    // A meeting to aim the destructive routes at while checking authorization.
+    let aliceMeeting: any;
+    {
+      const r = await aapi("POST", "/api/meetings", alice, { title: "Alice sync" });
+      assert.equal(r.status, 201);
+      aliceMeeting = r.json.meeting;
+    }
+
+    const adminRoutes: [string, string, unknown?][] = [
+      ["GET", "/api/admin/overview"],
+      ["GET", "/api/admin/users"],
+      ["PATCH", `/api/admin/users/${victimId}`, { disabled: true }],
+      ["DELETE", `/api/admin/users/${victimId}`],
+      ["GET", "/api/admin/meetings"],
+      ["DELETE", `/api/admin/meetings/${aliceMeeting.id}`],
+      ["POST", `/api/admin/meetings/${aliceMeeting.id}/end`],
+      ["GET", "/api/admin/live"],
+      ["POST", "/api/admin/live/some-room/kick", { identity: "guest-1" }],
+      ["POST", "/api/admin/live/some-room/end"],
+      ["GET", "/api/admin/recordings"],
+      ["DELETE", "/api/admin/recordings/nope"],
+      ["GET", "/api/admin/settings"],
+      ["PATCH", "/api/admin/settings", { registrationOpen: true }],
+      ["GET", "/api/admin/audit"],
+    ];
+    {
+      for (const [method, path, body] of adminRoutes) {
+        const r = await aapi(method, path, alice, body);
+        assert.equal(r.status, 403, `${method} ${path} for a non-admin should be 403`);
+        assert.equal(typeof r.json.error, "string");
+      }
+      ok(`all ${adminRoutes.length} admin routes return 403 {error} for a non-admin session`);
+    }
+    {
+      for (const [method, path, body] of adminRoutes) {
+        const r = await aapi(method, path, {}, body);
+        assert.equal(r.status, 403, `${method} ${path} without a session should be 403`);
+      }
+      ok("all admin routes return 403 (not 401) without a session");
+    }
+    {
+      const gets = [
+        "/api/admin/overview",
+        "/api/admin/users",
+        "/api/admin/meetings",
+        "/api/admin/live",
+        "/api/admin/recordings",
+        "/api/admin/settings",
+        "/api/admin/audit",
+      ];
+      for (const path of gets) {
+        const r = await aapi("GET", path, admin);
+        assert.equal(r.status, 200, `${path} for an admin should be 200`);
+      }
+      ok("every admin GET route returns 200 for an admin session");
+    }
+
+    // --- §1 overview ---
+    {
+      const r = await aapi("GET", "/api/admin/overview", admin);
+      assert.equal(r.status, 200);
+      assert.equal(r.json.users.total, 4);
+      assert.equal(r.json.users.disabled, 0);
+      assert.equal(r.json.users.admins, 2);
+      assert.equal(r.json.meetings.total, 1);
+      assert.equal(r.json.meetings.scheduled, 0);
+      assert.equal(r.json.meetings.live, 0);
+      assert.equal(r.json.recordings.count, 0);
+      assert.equal(r.json.messages.total, 0);
+      assert.ok(r.json.storage.dbBytes > 0, "dbBytes should be non-zero");
+      assert.equal(typeof r.json.storage.recordingsBytes, "number");
+      assert.equal(typeof r.json.storage.diskFreeBytes, "number");
+      assert.equal(typeof r.json.server.uptimeS, "number");
+      assert.equal(r.json.server.nodeVersion, process.version);
+      assert.ok(r.json.server.startedAt);
+      ok("overview reports user/meeting/recording/message/storage/server stats");
+    }
+    {
+      const r = await aapi("GET", "/api/admin/overview", admin);
+      assert.equal(r.json.livekit.reachable, false);
+      assert.equal(typeof r.json.livekit.error, "string");
+      assert.equal(r.json.livekit.rooms, 0);
+      assert.equal(r.json.livekit.participants, 0);
+      ok("overview degrades to livekit.reachable false + error when LiveKit is down");
+    }
+
+    // --- §4 live rooms with LiveKit down ---
+    {
+      const r = await aapi("GET", "/api/admin/live", admin);
+      assert.equal(r.status, 200);
+      assert.equal(r.json.reachable, false);
+      assert.deepEqual(r.json.rooms, []);
+      assert.equal(typeof r.json.error, "string");
+      ok("live rooms returns 200 {rooms: [], reachable: false, error} when LiveKit is down");
+    }
+    for (const [label, path, body] of [
+      ["kick", "/api/admin/live/some-room/kick", { identity: "guest-1" }],
+      ["end", "/api/admin/live/some-room/end", undefined],
+    ] as const) {
+      const r = await aapi("POST", path, admin, body);
+      assert.equal(r.status, 502, `live ${label} should be 502, got ${r.status}`);
+      assert.equal(typeof r.json.error, "string");
+      ok(`live ${label} returns 502 {error} rather than hanging or 500 when LiveKit is down`);
+    }
+    {
+      const r = await aapi("POST", `/api/admin/meetings/${aliceMeeting.id}/end`, admin);
+      assert.equal(r.status, 502);
+      assert.equal(typeof r.json.error, "string");
+      const missing = await aapi("POST", "/api/admin/meetings/does-not-exist/end", admin);
+      assert.equal(missing.status, 404);
+      ok("meeting end reports 502 when LiveKit is unreachable and 404 for an unknown meeting");
+    }
+
+    // --- §2 users list, search and pagination ---
+    {
+      const r = await aapi("GET", "/api/admin/users", admin);
+      assert.equal(r.status, 200);
+      assert.equal(r.json.total, 4);
+      assert.equal(r.json.users.length, 4);
+      const row = r.json.users.find((u: any) => u.id === aliceId);
+      assert.equal(row.email, "alice@example.com");
+      assert.equal(row.name, "Alice");
+      assert.equal(row.isAdmin, false);
+      assert.equal(row.disabled, false);
+      assert.ok(row.createdAt);
+      assert.equal(row.meetingCount, 1);
+      assert.ok(row.lastSeenAt, "lastSeenAt should come from the newest session");
+      const adminRow = r.json.users.find((u: any) => u.id === adminId);
+      assert.equal(adminRow.isAdmin, true);
+      ok("users list returns {users, total} with isAdmin/disabled/meetingCount/lastSeenAt");
+    }
+    {
+      const byEmail = await aapi("GET", "/api/admin/users?q=VICTIM@", admin);
+      assert.equal(byEmail.json.total, 1);
+      assert.equal(byEmail.json.users[0].id, victimId);
+      const byName = await aapi("GET", "/api/admin/users?q=victor", admin);
+      assert.equal(byName.json.total, 1);
+      assert.equal(byName.json.users[0].id, victimId);
+      const none = await aapi("GET", "/api/admin/users?q=nobody-here", admin);
+      assert.equal(none.json.total, 0);
+      assert.deepEqual(none.json.users, []);
+      ok("users q filters on name and email, case-insensitively");
+    }
+    {
+      const page = await aapi("GET", "/api/admin/users?limit=2&offset=0", admin);
+      assert.equal(page.json.users.length, 2);
+      assert.equal(page.json.total, 4, "total is the unpaginated count");
+      const next = await aapi("GET", "/api/admin/users?limit=2&offset=2", admin);
+      assert.equal(next.json.users.length, 2);
+      assert.notEqual(next.json.users[0].id, page.json.users[0].id);
+      const bad = await aapi("GET", "/api/admin/users?limit=500", admin);
+      assert.equal(bad.status, 400);
+      ok("users pagination honours limit/offset, keeps total, and caps limit at 200");
+    }
+
+    // --- §0/§2 guard rails ---
+    {
+      const self = await aapi("PATCH", `/api/admin/users/${adminId}`, admin, { disabled: true });
+      assert.equal(self.status, 400);
+      assert.equal(typeof self.json.error, "string");
+      const selfDelete = await aapi("DELETE", `/api/admin/users/${adminId}`, admin);
+      assert.equal(selfDelete.status, 400);
+      ok("an admin cannot disable or delete their own account (400)");
+    }
+    {
+      // `mixed@example.com` is only an admin via the differently-cased
+      // `MiXeD@Example.com` entry in ADMIN_EMAILS — the guard must still bite.
+      const disable = await aapi("PATCH", `/api/admin/users/${mixedId}`, admin, { disabled: true });
+      assert.equal(disable.status, 400);
+      const del = await aapi("DELETE", `/api/admin/users/${mixedId}`, admin);
+      assert.equal(del.status, 400);
+      assert.equal(count("users", "id = ?", mixedId), 1, "the other admin must still exist");
+      ok("an admin cannot disable or delete another admin, even one matched case-insensitively");
+    }
+    {
+      const r = await aapi("PATCH", "/api/admin/users/nope", admin, { disabled: true });
+      assert.equal(r.status, 404);
+      const d = await aapi("DELETE", "/api/admin/users/nope", admin);
+      assert.equal(d.status, 404);
+      const bad = await aapi("PATCH", `/api/admin/users/${victimId}`, admin, { nope: true });
+      assert.equal(bad.status, 400);
+      ok("user PATCH/DELETE 404 on an unknown id and 400 on an invalid body");
+    }
+
+    // --- §0 disabling really disables ---
+    {
+      const r = await aapi("PATCH", `/api/admin/users/${victimId}`, admin, { disabled: true });
+      assert.equal(r.status, 200);
+      assert.equal(r.json.user.id, victimId);
+      assert.equal(r.json.user.disabled, true);
+      ok("PATCH {disabled:true} returns 200 {user} with disabled true");
+    }
+    {
+      assert.equal(count("sessions", "user_id = ?", victimId), 0, "sessions must be deleted");
+      const me = await aapi("GET", "/api/auth/me", victim);
+      assert.equal(me.status, 401);
+      ok("disabling a user deletes their sessions; the old cookie is now 401");
+    }
+    {
+      const r = await aapi("POST", "/api/auth/login", {}, {
+        email: "victim@example.com",
+        password: "victim-passw0rd-1",
+      });
+      assert.equal(r.status, 401);
+      assert.equal(typeof r.json.error, "string");
+      ok("a disabled user cannot log in (401)");
+    }
+    {
+      const r = await aapi("PATCH", `/api/admin/users/${victimId}`, admin, { disabled: false });
+      assert.equal(r.status, 200);
+      assert.equal(r.json.user.disabled, false);
+      const login = await aapi("POST", "/api/auth/login", {}, {
+        email: "victim@example.com",
+        password: "victim-passw0rd-1",
+      });
+      assert.equal(login.status, 200);
+      captureSession(victim, login.setCookie);
+      ok("re-enabling a user lets them log in again");
+    }
+
+    // --- §6 settings ---
+    {
+      const r = await aapi("GET", "/api/admin/settings", admin);
+      assert.deepEqual(r.json.settings, {
+        registrationOpen: true,
+        defaultAllowShare: true,
+        defaultAllowChat: true,
+        defaultAllowUnmute: true,
+        defaultWaitingRoom: false,
+      });
+      ok("settings read through defaults when no rows exist");
+    }
+    {
+      const r = await aapi("PATCH", "/api/admin/settings", admin, { registrationOpen: false });
+      assert.equal(r.status, 200);
+      assert.equal(r.json.settings.registrationOpen, false);
+      assert.equal(r.json.settings.defaultAllowShare, true, "other keys are untouched");
+      const blocked = await aapi("POST", "/api/auth/register", {}, {
+        name: "Late",
+        email: "late@example.com",
+        password: "late-passw0rd-1",
+      });
+      assert.equal(blocked.status, 403);
+      assert.equal(blocked.json.error, "registration is closed");
+      ok("registrationOpen:false blocks POST /api/auth/register with 403 {error}");
+    }
+    {
+      const r = await aapi("PATCH", "/api/admin/settings", admin, { registrationOpen: true });
+      assert.equal(r.json.settings.registrationOpen, true);
+      const allowed = await aapi("POST", "/api/auth/register", {}, {
+        name: "Late",
+        email: "late@example.com",
+        password: "late-passw0rd-1",
+      });
+      assert.equal(allowed.status, 201);
+      ok("registrationOpen:true lets registration through again");
+    }
+    {
+      const r = await aapi("PATCH", "/api/admin/settings", admin, {
+        defaultWaitingRoom: true,
+        defaultAllowChat: false,
+        defaultAllowShare: false,
+      });
+      assert.equal(r.status, 200);
+      const created = await aapi("POST", "/api/meetings", alice, { title: "Seeded" });
+      assert.equal(created.status, 201);
+      assert.equal(created.json.meeting.waitingRoom, true);
+      assert.equal(created.json.meeting.allowChat, false);
+      assert.equal(created.json.meeting.allowShare, false);
+      assert.equal(created.json.meeting.allowUnmute, true);
+      // An existing meeting is untouched.
+      const existing = await aapi("GET", `/api/meetings/${aliceMeeting.code}`);
+      assert.equal(existing.json.meeting.waitingRoom, false);
+      assert.equal(existing.json.meeting.allowChat, true);
+      await aapi("DELETE", `/api/meetings/${created.json.meeting.id}`, alice);
+      await aapi("PATCH", "/api/admin/settings", admin, {
+        defaultWaitingRoom: false,
+        defaultAllowChat: true,
+        defaultAllowShare: true,
+      });
+      ok("default* settings seed a NEW meeting's waiting_room/allow_* and leave old ones alone");
+    }
+    {
+      const r = await aapi("PATCH", "/api/admin/settings", admin, { registrationOpen: "yes" });
+      assert.equal(r.status, 400);
+      const bad = await aapi("PATCH", "/api/admin/settings", admin, { registrationOpen: 5 });
+      assert.equal(bad.status, 400);
+      // Fastify strips unknown properties rather than rejecting them, so an
+      // unknown key is a no-op — never a silent write of a bogus setting.
+      const unknown = await aapi("PATCH", "/api/admin/settings", admin, { somethingElse: true });
+      assert.equal(unknown.status, 200);
+      assert.deepEqual(unknown.json.settings, {
+        registrationOpen: true,
+        defaultAllowShare: true,
+        defaultAllowChat: true,
+        defaultAllowUnmute: true,
+        defaultWaitingRoom: false,
+      });
+      ok("settings PATCH rejects non-boolean values (400) and ignores unknown keys");
+    }
+
+    // --- §3 meetings list ---
+    {
+      const r = await aapi("GET", "/api/admin/meetings", admin);
+      assert.equal(r.status, 200);
+      assert.equal(r.json.total, 1);
+      const row = r.json.meetings[0];
+      assert.equal(row.id, aliceMeeting.id);
+      assert.equal(row.code, aliceMeeting.code);
+      assert.equal(row.hostName, "Alice");
+      assert.equal(row.hostEmail, "alice@example.com");
+      assert.equal(row.live, false);
+      assert.equal(row.participantCount, 0);
+      assert.equal(row.messageCount, 0);
+      assert.equal(row.recordingCount, 0);
+      ok("meetings list returns {meetings, total} with host, live and counts");
+    }
+    {
+      const byCode = await aapi(
+        `GET`,
+        `/api/admin/meetings?q=${aliceMeeting.code.slice(0, 3)}`,
+        admin,
+      );
+      assert.equal(byCode.json.total, 1);
+      const byTitle = await aapi("GET", "/api/admin/meetings?q=SYNC", admin);
+      assert.equal(byTitle.json.total, 1);
+      const none = await aapi("GET", "/api/admin/meetings?q=zzzz-nothing", admin);
+      assert.equal(none.json.total, 0);
+      const live = await aapi("GET", "/api/admin/meetings?live=1", admin);
+      assert.equal(live.status, 200);
+      assert.equal(live.json.total, 0, "nothing is live while LiveKit is down");
+      ok("meetings q filters code and title; live=1 filters to active rooms");
+    }
+
+    // --- §5 recordings ---
+    let presentRecording: string;
+    let missingRecording: string;
+    {
+      presentRecording = seedRecording(aliceMeeting.id, "present.mp4", "video-bytes");
+      missingRecording = seedRecording(aliceMeeting.id, "absent.mp4", null);
+      const r = await aapi("GET", "/api/admin/recordings", admin);
+      assert.equal(r.status, 200);
+      assert.equal(r.json.total, 2);
+      assert.equal(r.json.totalBytes, "video-bytes".length);
+      const present = r.json.recordings.find((x: any) => x.id === presentRecording);
+      assert.equal(present.meetingCode, aliceMeeting.code);
+      assert.equal(present.meetingTitle, "Alice sync");
+      assert.equal(present.hostName, "Alice");
+      assert.equal(present.sizeBytes, "video-bytes".length);
+      assert.equal(present.missing, false);
+      assert.ok(present.startedAt && present.endedAt);
+      const absent = r.json.recordings.find((x: any) => x.id === missingRecording);
+      assert.equal(absent.missing, true);
+      assert.equal(absent.sizeBytes, null);
+      ok("admin recordings list returns {recordings,total,totalBytes} and flags missing files");
+    }
+    {
+      const page = await aapi("GET", "/api/admin/recordings?limit=1&offset=0", admin);
+      assert.equal(page.json.recordings.length, 1);
+      assert.equal(page.json.total, 2);
+      ok("admin recordings pagination keeps the unpaginated total");
+    }
+    {
+      const res = await fetch(`${adminBase}/api/recordings/${presentRecording}/file`, {
+        headers: { cookie: admin.cookie! },
+      });
+      assert.equal(res.status, 200);
+      assert.equal(await res.text(), "video-bytes");
+      ok("an admin may stream a recording they do not host");
+    }
+    {
+      const res = await fetch(`${adminBase}/api/recordings/${presentRecording}/file`, {
+        headers: { cookie: alice.cookie! },
+      });
+      assert.equal(res.status, 200, "the host path must still work");
+      await res.arrayBuffer();
+      const stranger = await fetch(`${adminBase}/api/recordings/${presentRecording}/file`, {
+        headers: { cookie: victim.cookie! },
+      });
+      assert.equal(stranger.status, 403);
+      await stranger.arrayBuffer();
+      ok("the host still streams their own recording; an unrelated user gets 403");
+    }
+    {
+      const r = await aapi("DELETE", `/api/admin/recordings/${presentRecording}`, admin);
+      assert.equal(r.status, 204);
+      assert.equal(count("recordings", "id = ?", presentRecording), 0);
+      assert.equal(
+        existsSync(join(adminRecordings, "present.mp4")),
+        false,
+        "the file must be removed from disk",
+      );
+      const missing = await aapi("DELETE", "/api/admin/recordings/nope", admin);
+      assert.equal(missing.status, 404);
+      ok("admin recording delete removes the row AND the file; unknown id is 404");
+    }
+
+    // --- §3 meeting delete cascades ---
+    {
+      const meeting = (await aapi("POST", "/api/meetings", alice, { title: "Doomed" })).json.meeting;
+      const token = await aapi("POST", `/api/meetings/${meeting.code}/token`, alice, {
+        displayName: "Alice",
+      });
+      await aapi("POST", `/api/meetings/${meeting.code}/messages`, {}, {
+        chatToken: token.json.chatToken,
+        text: "this will be deleted",
+      });
+      const breakouts = await aapi("POST", `/api/meetings/${meeting.code}/breakouts`, alice, {
+        rooms: [{ name: "B", identities: [token.json.identity] }],
+      });
+      const breakoutId = breakouts.json.breakouts[0].id;
+      const recId = seedRecording(meeting.id, "doomed.mp4", "doomed-bytes");
+      await aapi("PATCH", `/api/meetings/${meeting.id}`, alice, { waitingRoom: true });
+      await aapi("POST", `/api/meetings/${meeting.code}/token`, {}, { displayName: "Waiter" });
+      assert.equal(count("waiting_guests", "meeting_id = ?", meeting.id), 1);
+
+      const r = await aapi("DELETE", `/api/admin/meetings/${meeting.id}`, admin);
+      assert.equal(r.status, 204);
+      assert.equal(count("meetings", "id = ?", meeting.id), 0);
+      assert.equal(count("messages", "meeting_id = ?", meeting.id), 0);
+      assert.equal(count("waiting_guests", "meeting_id = ?", meeting.id), 0);
+      assert.equal(count("breakouts", "meeting_id = ?", meeting.id), 0);
+      assert.equal(count("breakout_assignments", "breakout_id = ?", breakoutId), 0);
+      assert.equal(count("recordings", "id = ?", recId), 0);
+      assert.equal(existsSync(join(adminRecordings, "doomed.mp4")), false);
+      const gone = await aapi("DELETE", `/api/admin/meetings/${meeting.id}`, admin);
+      assert.equal(gone.status, 404);
+      ok("admin meeting delete removes every dependent row and the recording file");
+    }
+
+    // --- §2 user delete cascades ---
+    {
+      const meeting = (await aapi("POST", "/api/meetings", victim, { title: "Victim standup" }))
+        .json.meeting;
+      const token = await aapi("POST", `/api/meetings/${meeting.code}/token`, victim, {
+        displayName: "Victor",
+      });
+      await aapi("POST", `/api/meetings/${meeting.code}/messages`, {}, {
+        chatToken: token.json.chatToken,
+        text: "cascade me",
+      });
+      const breakouts = await aapi("POST", `/api/meetings/${meeting.code}/breakouts`, victim, {
+        rooms: [{ name: "Victim room", identities: [token.json.identity] }],
+      });
+      const breakoutId = breakouts.json.breakouts[0].id;
+      const recId = seedRecording(meeting.id, "victim.mp4", "victim-bytes");
+      await aapi("PATCH", `/api/meetings/${meeting.id}`, victim, { waitingRoom: true });
+      await aapi("POST", `/api/meetings/${meeting.code}/token`, {}, { displayName: "Waiter" });
+
+      assert.equal(count("sessions", "user_id = ?", victimId) > 0, true);
+      assert.equal(count("messages", "meeting_id = ?", meeting.id), 1);
+      assert.equal(count("waiting_guests", "meeting_id = ?", meeting.id), 1);
+      assert.equal(count("breakout_assignments", "breakout_id = ?", breakoutId), 1);
+      assert.equal(existsSync(join(adminRecordings, "victim.mp4")), true);
+
+      const r = await aapi("DELETE", `/api/admin/users/${victimId}`, admin);
+      assert.equal(r.status, 204);
+      assert.equal(count("users", "id = ?", victimId), 0, "user row");
+      assert.equal(count("sessions", "user_id = ?", victimId), 0, "sessions");
+      assert.equal(count("meetings", "host_user_id = ?", victimId), 0, "meetings");
+      assert.equal(count("messages", "meeting_id = ?", meeting.id), 0, "messages");
+      assert.equal(count("waiting_guests", "meeting_id = ?", meeting.id), 0, "waiting guests");
+      assert.equal(count("breakouts", "meeting_id = ?", meeting.id), 0, "breakouts");
+      assert.equal(count("breakout_assignments", "breakout_id = ?", breakoutId), 0, "assignments");
+      assert.equal(count("recordings", "id = ?", recId), 0, "recording rows");
+      assert.equal(
+        existsSync(join(adminRecordings, "victim.mp4")),
+        false,
+        "the recording file must be gone from disk",
+      );
+      ok("user delete cascades to sessions, meetings, messages, waiting guests, breakouts, assignments, recordings + files");
+    }
+    {
+      const me = await aapi("GET", "/api/auth/me", victim);
+      assert.equal(me.status, 401);
+      const login = await aapi("POST", "/api/auth/login", {}, {
+        email: "victim@example.com",
+        password: "victim-passw0rd-1",
+      });
+      assert.equal(login.status, 401);
+      ok("a deleted user's session and credentials no longer work");
+    }
+
+    // --- §7 audit log ---
+    {
+      const r = await aapi("GET", "/api/admin/audit", admin);
+      assert.equal(r.status, 200);
+      assert.ok(r.json.total >= 8, `expected several audit rows, got ${r.json.total}`);
+      const actions = r.json.entries.map((e: any) => e.action);
+      for (const action of [
+        "user.disable",
+        "user.enable",
+        "user.delete",
+        "meeting.delete",
+        "recording.delete",
+        "settings.update",
+      ]) {
+        assert.ok(actions.includes(action), `audit should contain ${action}`);
+      }
+      ok("audit log records every state-changing admin action by name");
+    }
+    {
+      const r = await aapi("GET", "/api/admin/audit", admin);
+      const entry = r.json.entries.find((e: any) => e.action === "user.delete");
+      assert.equal(entry.actorUserId, adminId);
+      assert.equal(entry.actorEmail, "admin@example.com");
+      assert.equal(entry.targetType, "user");
+      assert.equal(entry.targetId, victimId);
+      assert.equal(entry.detail.email, "victim@example.com");
+      assert.ok(entry.createdAt);
+      const raw = JSON.stringify(r.json.entries);
+      assert.ok(!/passw0rd|password_hash|password_salt|diss_session/.test(raw), "no secrets");
+      ok("audit entries carry the actor id/email, target and a short JSON detail, no secrets");
+    }
+    {
+      const r = await aapi("GET", "/api/admin/audit?limit=1", admin);
+      assert.equal(r.json.entries.length, 1);
+      assert.ok(r.json.total > 1);
+      const second = await aapi("GET", "/api/admin/audit?limit=1&offset=1", admin);
+      assert.notEqual(second.json.entries[0].id, r.json.entries[0].id);
+      const times = (await aapi("GET", "/api/admin/audit", admin)).json.entries.map(
+        (e: any) => e.createdAt,
+      );
+      assert.deepEqual(times, [...times].sort().reverse(), "newest first");
+      ok("audit log is newest-first and paginates with limit/offset + total");
+    }
+    {
+      // Failed guard-rail attempts must not be recorded as if they happened.
+      const r = await aapi("GET", "/api/admin/audit?limit=200", admin);
+      const targets = r.json.entries
+        .filter((e: any) => e.action.startsWith("user."))
+        .map((e: any) => e.targetId);
+      assert.ok(!targets.includes(mixedId), "a rejected action must not be audited");
+      assert.ok(!targets.includes(adminId));
+      ok("rejected admin actions (self/other admin) write no audit rows");
+    }
+
+    // --- §0 admin rate limit ---
+    {
+      let saw429 = false;
+      for (let i = 0; i < 130 && !saw429; i++) {
+        const r = await aapi("GET", "/api/admin/settings", admin);
+        if (r.status === 429) saw429 = true;
+        else assert.equal(r.status, 200);
+      }
+      assert.ok(saw429, "expected /api/admin/* to be limited to 120 per window");
+      ok("admin routes are rate limited to 120 per window per IP (429)");
+    }
+
+    adminDb.close();
+  }
+
   console.log(`\nAll ${passed} smoke checks passed.`);
 } finally {
   await app.close();
+  if (adminApp) await adminApp.close();
   rmSync(tempDir, { recursive: true, force: true });
 }

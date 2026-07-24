@@ -9,7 +9,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "tsx test/smoke.ts"
+    "test": "tsx test/smoke.ts",
+    "test:migration": "tsx test/migration.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

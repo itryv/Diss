@@ -40,6 +40,12 @@ export interface Env {
   RECORDINGS_DIR: string;
   /** Rate-limit window in ms (default 60s). Overridable mainly for tests. */
   RATE_LIMIT_WINDOW_MS: number;
+  /**
+   * Comma-separated list of admin emails (case-insensitive, trimmed). Empty =
+   * nobody is an admin. This is the ONLY way to grant admin — deliberately not
+   * grantable through the API, so a stolen admin session cannot widen itself.
+   */
+  ADMIN_EMAILS: string;
 }
 
 export function readEnv(overrides: Partial<Env> = {}): Env {
@@ -55,6 +61,7 @@ export function readEnv(overrides: Partial<Env> = {}): Env {
     EGRESS_ENABLED: (process.env.EGRESS_ENABLED ?? "false").toLowerCase() === "true",
     RECORDINGS_DIR: process.env.RECORDINGS_DIR ?? "./data/recordings",
     RATE_LIMIT_WINDOW_MS: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000),
+    ADMIN_EMAILS: process.env.ADMIN_EMAILS ?? "",
     ...overrides,
   };
 }

@@ -4,8 +4,8 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, mkdir, stat, unlink } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { chmod, mkdir, readdir, stat, statfs, unlink } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import {
   AccessToken,
   EgressClient,
@@ -17,6 +17,7 @@ import {
 import type { Env } from "./env.js";
 import {
   openDb,
+  type AdminAuditRow,
   type BreakoutRow,
   type MeetingRow,
   type MessageRow,
@@ -43,6 +44,18 @@ import {
   listMeetingsForHost,
   meetingJson,
 } from "./meetings.js";
+import {
+  auditJson,
+  deleteMeetingsCascade,
+  isAdminEmail,
+  meetingIdsForHost,
+  parseAdminEmails,
+  readSettings,
+  recordingFilesForMeetings,
+  writeAudit,
+  writeSettings,
+  type AdminSettings,
+} from "./admin.js";
 
 const userSchema = {
   type: "object",
@@ -58,14 +71,92 @@ const errorReply = { type: "object", properties: { error: { type: "string" } } }
 /** Waiting-room entries not polled for this long may be pruned. */
 const WAITING_STALE_MS = 60_000;
 
+/** Every /api/admin/* route: 120 requests per rate-limit window per IP. */
+const ADMIN_RATE_LIMIT = 120;
+
+/**
+ * Hard ceiling on any LiveKit round trip made by an admin route. An admin
+ * dashboard must never hang on an unreachable media server, so the calls race
+ * against this and degrade to `reachable: false`.
+ */
+const LIVEKIT_TIMEOUT_MS = Number(process.env.LIVEKIT_TIMEOUT_MS ?? 3000);
+
 function perRoute(max: number) {
   return { config: { rateLimit: { max } } };
+}
+
+const adminPagination = {
+  type: "object",
+  properties: {
+    limit: { type: "integer", minimum: 1, maximum: 200, default: 50 },
+    offset: { type: "integer", minimum: 0, default: 0 },
+  },
+} as const;
+
+function livekitErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message.includes("timed out")) {
+    return "LiveKit request timed out";
+  }
+  return "LiveKit server unreachable or rejected the request";
+}
+
+/** Races a LiveKit call against LIVEKIT_TIMEOUT_MS. */
+async function withTimeout<T>(work: Promise<T>, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out`)), LIVEKIT_TIMEOUT_MS);
+    timer.unref?.();
+  });
+  // The loser of the race must not surface as an unhandled rejection.
+  work.catch(() => {});
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** `<code>__b<idx>` breakout rooms belong to the meeting with the base code. */
+function baseRoomCode(roomName: string): string {
+  const marker = roomName.indexOf("__b");
+  return marker === -1 ? roomName : roomName.slice(0, marker);
+}
+
+async function directorySize(dir: string): Promise<number> {
+  let total = 0;
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    try {
+      const info = await stat(join(dir, entry));
+      if (info.isFile()) total += info.size;
+    } catch {
+      // raced with a delete — skip
+    }
+  }
+  return total;
+}
+
+async function fileSize(path: string): Promise<number> {
+  try {
+    return (await stat(path)).size;
+  } catch {
+    return 0;
+  }
 }
 
 export async function buildServer(env: Env): Promise<FastifyInstance> {
   const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
   const db = openDb(env.DATABASE_PATH);
   const recordingsDir = resolve(env.RECORDINGS_DIR);
+  const databaseFile = resolve(env.DATABASE_PATH);
+  const serverStartedAt = new Date().toISOString();
+  /** Derived once per boot: changing the admin list is a config change + restart. */
+  const adminEmails = parseAdminEmails(env.ADMIN_EMAILS);
 
   app.register(cookie, { secret: env.SESSION_SECRET });
   app.register(cors, { origin: env.CORS_ORIGIN, credentials: true });
@@ -97,11 +188,54 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
   });
 
   function requireUser(request: Parameters<typeof sessionUser>[1]): UserRow | null {
-    return sessionUser(db, request);
+    const user = sessionUser(db, request);
+    // Belt and braces: disabling a user deletes their sessions, but a session
+    // created in the same instant must not survive either.
+    if (!user || user.disabled === 1) return null;
+    return user;
+  }
+
+  function isAdmin(user: UserRow): boolean {
+    return isAdminEmail(adminEmails, user.email);
+  }
+
+  /**
+   * Contract §0: an /api/admin/* route needs a valid session whose user is an
+   * admin. Anything else — no session, disabled, non-admin — is 403, not 401,
+   * so the admin surface does not advertise itself.
+   */
+  function requireAdmin(
+    request: Parameters<typeof sessionUser>[1],
+    reply: FastifyReply,
+  ): UserRow | null {
+    const user = requireUser(request);
+    if (!user || !isAdmin(user)) {
+      reply.status(403).send({ error: "admin access required" });
+      return null;
+    }
+    return user;
   }
 
   function roomService(): RoomServiceClient {
     return new RoomServiceClient(env.LIVEKIT_API_URL, env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET);
+  }
+
+  type LiveRoom = Awaited<ReturnType<RoomServiceClient["listRooms"]>>[number];
+  type LiveParticipant = Awaited<ReturnType<RoomServiceClient["listParticipants"]>>[number];
+
+  /** Active rooms, or `reachable:false` + an error string. Never throws. */
+  async function listLiveRooms(): Promise<{
+    reachable: boolean;
+    rooms: LiveRoom[];
+    error?: string;
+  }> {
+    try {
+      const rooms = await withTimeout(roomService().listRooms(), "LiveKit listRooms");
+      return { reachable: true, rooms };
+    } catch (err) {
+      app.log.warn({ err }, "LiveKit listRooms failed");
+      return { reachable: false, rooms: [], error: livekitErrorMessage(err) };
+    }
   }
 
   /**
@@ -256,11 +390,16 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
         },
         response: {
           201: { type: "object", properties: { user: userSchema } },
+          403: errorReply,
           409: errorReply,
         },
       },
     },
     async (request, reply) => {
+      // Admin §6: registrationOpen is the switch that closes the live site.
+      if (!readSettings(db).registrationOpen) {
+        return reply.status(403).send({ error: "registration is closed" });
+      }
       const { name, email, password } = request.body;
       const existing = db.prepare("SELECT 1 FROM users WHERE email = ?").get(email);
       if (existing) return reply.status(409).send({ error: "email already registered" });
@@ -312,6 +451,9 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
       if (!user || !verifyPassword(password, user.password_salt, user.password_hash)) {
         return reply.status(401).send({ error: "invalid email or password" });
       }
+      if (user.disabled === 1) {
+        return reply.status(401).send({ error: "account is disabled" });
+      }
       setSessionCookie(reply, createSession(db, user.id));
       return reply.status(200).send({ user: publicUser(user) });
     },
@@ -327,7 +469,11 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
   app.get("/api/auth/me", async (request, reply) => {
     const user = requireUser(request);
     if (!user) return reply.status(401).send({ error: "not authenticated" });
-    return reply.status(200).send({ user: publicUser(user) });
+    // `isAdmin` is exposed both at the top level and on the user object: the
+    // contract writes `me.isAdmin` and clients disagree about whether `me` is
+    // the envelope or the user, so both readings are true.
+    const admin = isAdmin(user);
+    return reply.status(200).send({ user: { ...publicUser(user), isAdmin: admin }, isAdmin: admin });
   });
 
   // ---------- Meetings ----------
@@ -353,9 +499,24 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
       const { title, startsAt } = request.body ?? {};
       const id = randomUUID();
       const code = generateMeetingCode(db);
+      // Admin §6: the default* settings seed a NEWLY created meeting. Existing
+      // meetings are untouched.
+      const settings = readSettings(db);
       db.prepare(
-        "INSERT INTO meetings (id, code, title, host_user_id, starts_at) VALUES (?, ?, ?, ?, ?)",
-      ).run(id, code, title?.trim() || `${user.name}'s meeting`, user.id, startsAt ?? null);
+        `INSERT INTO meetings
+           (id, code, title, host_user_id, starts_at, waiting_room, allow_share, allow_chat, allow_unmute)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        code,
+        title?.trim() || `${user.name}'s meeting`,
+        user.id,
+        startsAt ?? null,
+        settings.defaultWaitingRoom ? 1 : 0,
+        settings.defaultAllowShare ? 1 : 0,
+        settings.defaultAllowChat ? 1 : 0,
+        settings.defaultAllowUnmute ? 1 : 0,
+      );
       const meeting = findMeetingById(db, id)!;
       return reply.status(201).send({ meeting: meetingJson(meeting) });
     },
@@ -1277,7 +1438,11 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
     return reply.status(200).send({ recordings });
   });
 
-  function findRecordingForHost(id: string, userId: string, reply: FastifyReply) {
+  /**
+   * The host of the recording's meeting may always access it. Admins may too
+   * (contract §5) — the host path is unchanged.
+   */
+  function findRecordingForHost(id: string, user: UserRow, reply: FastifyReply) {
     const row = db.prepare(`${SELECT_RECORDING} WHERE r.id = ?`).get(id) as
       | RecordingJoined
       | undefined;
@@ -1285,7 +1450,7 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
       reply.status(404).send({ error: "recording not found" });
       return null;
     }
-    if (row.host_user_id !== userId) {
+    if (row.host_user_id !== user.id && !isAdmin(user)) {
       reply.status(403).send({ error: "only the host can access this recording" });
       return null;
     }
@@ -1306,7 +1471,7 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
     async (request, reply) => {
       const user = requireUser(request);
       if (!user) return reply.status(401).send({ error: "not authenticated" });
-      const row = findRecordingForHost(request.params.id, user.id, reply);
+      const row = findRecordingForHost(request.params.id, user, reply);
       if (!row) return reply;
 
       const filePath = join(recordingsDir, row.file_name);
@@ -1366,7 +1531,7 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
     async (request, reply) => {
       const user = requireUser(request);
       if (!user) return reply.status(401).send({ error: "not authenticated" });
-      const row = findRecordingForHost(request.params.id, user.id, reply);
+      const row = findRecordingForHost(request.params.id, user, reply);
       if (!row) return reply;
 
       db.prepare("DELETE FROM recordings WHERE id = ?").run(row.id);
@@ -1376,6 +1541,673 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
         // file already gone — row deletion is what matters
       }
       return reply.status(204).send();
+    },
+  );
+
+  // ================= Admin (docs/api-contract-admin.md) =================
+
+  /**
+   * Removes recording files for rows that have already been deleted. The
+   * filesystem is not transactional, so this always runs AFTER the DB
+   * transaction has committed: a failed unlink leaves a stray file, never an
+   * orphan row.
+   */
+  async function unlinkRecordingFiles(fileNames: string[]): Promise<void> {
+    for (const name of fileNames) {
+      try {
+        await unlink(join(recordingsDir, name));
+      } catch {
+        // already gone / never written by egress
+      }
+    }
+  }
+
+  type AdminUserRow = UserRow & { meeting_count: number; last_seen_at: string | null };
+
+  const adminUserJson = (row: AdminUserRow) => ({
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    isAdmin: isAdminEmail(adminEmails, row.email),
+    disabled: row.disabled === 1,
+    createdAt: row.created_at,
+    meetingCount: row.meeting_count,
+    // No `last_seen_at` column exists on users; the newest session is the best
+    // available signal and needs no extra write path.
+    lastSeenAt: row.last_seen_at,
+  });
+
+  const SELECT_ADMIN_USER = `
+    SELECT u.*,
+      (SELECT COUNT(*) FROM meetings m WHERE m.host_user_id = u.id) AS meeting_count,
+      (SELECT MAX(s.created_at) FROM sessions s WHERE s.user_id = u.id) AS last_seen_at
+    FROM users u
+  `;
+
+  function loadAdminUser(id: string): AdminUserRow | undefined {
+    return db.prepare(`${SELECT_ADMIN_USER} WHERE u.id = ?`).get(id) as AdminUserRow | undefined;
+  }
+
+  /**
+   * Guard rails: an admin may not disable or delete an admin or themselves.
+   * The admin test is on the email and case-insensitive, so `Admin@x.com`
+   * cannot be used to slip past a list containing `admin@x.com`.
+   */
+  function protectedTarget(actor: UserRow, target: UserRow): string | null {
+    if (target.id === actor.id) return "you cannot do this to your own account";
+    if (isAdminEmail(adminEmails, target.email)) return "cannot modify another admin";
+    return null;
+  }
+
+  // ---------- §1 Overview ----------
+
+  app.get("/api/admin/overview", perRoute(ADMIN_RATE_LIMIT), async (request, reply) => {
+    const actor = requireAdmin(request, reply);
+    if (!actor) return reply;
+
+    const users = db.prepare("SELECT email, disabled FROM users").all() as {
+      email: string;
+      disabled: number;
+    }[];
+    const meetings = db
+      .prepare("SELECT code, starts_at FROM meetings")
+      .all() as { code: string; starts_at: string | null }[];
+    const recordingFiles = (
+      db.prepare("SELECT file_name FROM recordings").all() as { file_name: string }[]
+    ).map((r) => r.file_name);
+    const messageCount = (
+      db.prepare("SELECT COUNT(*) AS n FROM messages").get() as { n: number }
+    ).n;
+
+    const live = await listLiveRooms();
+    const liveCodes = new Set(live.rooms.map((r) => baseRoomCode(r.name)));
+
+    let recordingBytes = 0;
+    for (const name of recordingFiles) {
+      recordingBytes += await fileSize(join(recordingsDir, name));
+    }
+
+    const dbBytes =
+      (await fileSize(databaseFile)) +
+      (await fileSize(`${databaseFile}-wal`)) +
+      (await fileSize(`${databaseFile}-shm`));
+    const recordingsBytes = await directorySize(recordingsDir);
+    let diskFreeBytes = 0;
+    try {
+      const fs = await statfs(dirname(databaseFile));
+      diskFreeBytes = Number(fs.bavail) * Number(fs.bsize);
+    } catch {
+      // statfs unsupported on this platform/filesystem — report 0 rather than 500
+    }
+
+    return reply.status(200).send({
+      users: {
+        total: users.length,
+        disabled: users.filter((u) => u.disabled === 1).length,
+        admins: users.filter((u) => isAdminEmail(adminEmails, u.email)).length,
+      },
+      meetings: {
+        total: meetings.length,
+        scheduled: meetings.filter((m) => m.starts_at !== null).length,
+        live: meetings.filter((m) => liveCodes.has(m.code)).length,
+      },
+      recordings: { count: recordingFiles.length, bytes: recordingBytes },
+      messages: { total: messageCount },
+      storage: { dbBytes, recordingsBytes, diskFreeBytes },
+      livekit: {
+        reachable: live.reachable,
+        rooms: live.rooms.length,
+        participants: live.rooms.reduce((sum, r) => sum + Number(r.numParticipants ?? 0), 0),
+        ...(live.error ? { error: live.error } : {}),
+      },
+      server: {
+        uptimeS: Math.floor(process.uptime()),
+        nodeVersion: process.version,
+        startedAt: serverStartedAt,
+      },
+    });
+  });
+
+  // ---------- §2 Users ----------
+
+  app.get<{ Querystring: { q?: string; limit?: number; offset?: number } }>(
+    "/api/admin/users",
+    {
+      ...perRoute(ADMIN_RATE_LIMIT),
+      schema: {
+        querystring: {
+          ...adminPagination,
+          properties: {
+            ...adminPagination.properties,
+            q: { type: "string", maxLength: 200 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const actor = requireAdmin(request, reply);
+      if (!actor) return reply;
+
+      const { q, limit = 50, offset = 0 } = request.query;
+      const term = (q ?? "").trim().toLowerCase();
+      const where = term ? "WHERE lower(u.name) LIKE ? OR lower(u.email) LIKE ?" : "";
+      const args = term ? [`%${term}%`, `%${term}%`] : [];
+
+      const total = (
+        db.prepare(`SELECT COUNT(*) AS n FROM users u ${where}`).get(...args) as { n: number }
+      ).n;
+      const rows = db
+        .prepare(`${SELECT_ADMIN_USER} ${where} ORDER BY u.created_at DESC, u.rowid DESC LIMIT ? OFFSET ?`)
+        .all(...args, limit, offset) as AdminUserRow[];
+
+      return reply.status(200).send({ users: rows.map(adminUserJson), total });
+    },
+  );
+
+  app.patch<{ Params: { id: string }; Body: { disabled: boolean } }>(
+    "/api/admin/users/:id",
+    {
+      ...perRoute(ADMIN_RATE_LIMIT),
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", minLength: 1, maxLength: 100 } },
+        },
+        body: {
+          type: "object",
+          required: ["disabled"],
+          additionalProperties: false,
+          properties: { disabled: { type: "boolean" } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const actor = requireAdmin(request, reply);
+      if (!actor) return reply;
+
+      const target = loadAdminUser(request.params.id);
+      if (!target) return reply.status(404).send({ error: "user not found" });
+      const blocked = protectedTarget(actor, target);
+      if (blocked) return reply.status(400).send({ error: blocked });
+
+      const disabled = request.body.disabled;
+      db.transaction(() => {
+        db.prepare("UPDATE users SET disabled = ? WHERE id = ?").run(disabled ? 1 : 0, target.id);
+        // Disabling must take effect immediately, not at session expiry.
+        if (disabled) db.prepare("DELETE FROM sessions WHERE user_id = ?").run(target.id);
+        writeAudit(db, actor, disabled ? "user.disable" : "user.enable", "user", target.id, {
+          email: target.email,
+          disabled,
+        });
+      })();
+
+      return reply.status(200).send({ user: adminUserJson(loadAdminUser(target.id)!) });
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    "/api/admin/users/:id",
+    {
+      ...perRoute(ADMIN_RATE_LIMIT),
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", minLength: 1, maxLength: 100 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const actor = requireAdmin(request, reply);
+      if (!actor) return reply;
+
+      const target = loadAdminUser(request.params.id);
+      if (!target) return reply.status(404).send({ error: "user not found" });
+      const blocked = protectedTarget(actor, target);
+      if (blocked) return reply.status(400).send({ error: blocked });
+
+      const meetingIds = meetingIdsForHost(db, target.id);
+      const files = recordingFilesForMeetings(db, meetingIds);
+
+      db.transaction(() => {
+        deleteMeetingsCascade(db, meetingIds);
+        db.prepare("DELETE FROM sessions WHERE user_id = ?").run(target.id);
+        db.prepare("DELETE FROM users WHERE id = ?").run(target.id);
+        writeAudit(db, actor, "user.delete", "user", target.id, {
+          email: target.email,
+          meetings: meetingIds.length,
+          recordings: files.length,
+        });
+      })();
+
+      await unlinkRecordingFiles(files);
+      return reply.status(204).send();
+    },
+  );
+
+  // ---------- §3 Meetings ----------
+
+  type AdminMeetingRow = MeetingRow & {
+    host_name: string;
+    host_email: string;
+    message_count: number;
+    recording_count: number;
+  };
+
+  const SELECT_ADMIN_MEETING = `
+    SELECT m.*, u.name AS host_name, u.email AS host_email,
+      (SELECT COUNT(*) FROM messages x WHERE x.meeting_id = m.id) AS message_count,
+      (SELECT COUNT(*) FROM recordings r WHERE r.meeting_id = m.id) AS recording_count
+    FROM meetings m JOIN users u ON u.id = m.host_user_id
+  `;
+
+  app.get<{ Querystring: { q?: string; live?: string; limit?: number; offset?: number } }>(
+    "/api/admin/meetings",
+    {
+      ...perRoute(ADMIN_RATE_LIMIT),
+      schema: {
+        querystring: {
+          ...adminPagination,
+          properties: {
+            ...adminPagination.properties,
+            q: { type: "string", maxLength: 200 },
+            live: { type: "string", maxLength: 10 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const actor = requireAdmin(request, reply);
+      if (!actor) return reply;
+
+      const { q, live, limit = 50, offset = 0 } = request.query;
+      const term = (q ?? "").trim().toLowerCase();
+      const where = term ? "WHERE lower(m.code) LIKE ? OR lower(m.title) LIKE ?" : "";
+      const args = term ? [`%${term}%`, `%${term}%`] : [];
+      const rows = db
+        .prepare(`${SELECT_ADMIN_MEETING} ${where} ORDER BY m.created_at DESC, m.rowid DESC`)
+        .all(...args) as AdminMeetingRow[];
+
+      // "live" is LiveKit state, so it is resolved after the SQL filter; an
+      // unreachable LiveKit simply means nothing is live, never a 500.
+      const liveRooms = await listLiveRooms();
+      const participantsByCode = new Map<string, number>();
+      for (const room of liveRooms.rooms) {
+        const code = baseRoomCode(room.name);
+        participantsByCode.set(
+          code,
+          (participantsByCode.get(code) ?? 0) + Number(room.numParticipants ?? 0),
+        );
+      }
+
+      const decorated = rows.map((row) => ({
+        ...meetingJson(row),
+        hostName: row.host_name,
+        hostEmail: row.host_email,
+        live: participantsByCode.has(row.code),
+        participantCount: participantsByCode.get(row.code) ?? 0,
+        messageCount: row.message_count,
+        recordingCount: row.recording_count,
+      }));
+      const filtered =
+        live === "1" || live === "true" ? decorated.filter((m) => m.live) : decorated;
+
+      return reply.status(200).send({
+        meetings: filtered.slice(offset, offset + limit),
+        total: filtered.length,
+        livekit: {
+          reachable: liveRooms.reachable,
+          ...(liveRooms.error ? { error: liveRooms.error } : {}),
+        },
+      });
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    "/api/admin/meetings/:id",
+    {
+      ...perRoute(ADMIN_RATE_LIMIT),
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", minLength: 1, maxLength: 100 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const actor = requireAdmin(request, reply);
+      if (!actor) return reply;
+      const meeting = findMeetingById(db, request.params.id);
+      if (!meeting) return reply.status(404).send({ error: "meeting not found" });
+
+      // Best effort: an unreachable LiveKit must not block the deletion.
+      const live = await listLiveRooms();
+      for (const room of live.rooms) {
+        if (baseRoomCode(room.name) !== meeting.code) continue;
+        try {
+          await withTimeout(roomService().deleteRoom(room.name), "LiveKit deleteRoom");
+        } catch (err) {
+          app.log.warn({ err }, "deleting the live room before meeting delete failed");
+        }
+      }
+
+      const files = recordingFilesForMeetings(db, [meeting.id]);
+      db.transaction(() => {
+        deleteMeetingsCascade(db, [meeting.id]);
+        writeAudit(db, actor, "meeting.delete", "meeting", meeting.id, {
+          code: meeting.code,
+          title: meeting.title,
+          recordings: files.length,
+        });
+      })();
+
+      await unlinkRecordingFiles(files);
+      return reply.status(204).send();
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    "/api/admin/meetings/:id/end",
+    {
+      ...perRoute(ADMIN_RATE_LIMIT),
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", minLength: 1, maxLength: 100 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const actor = requireAdmin(request, reply);
+      if (!actor) return reply;
+      const meeting = findMeetingById(db, request.params.id);
+      if (!meeting) return reply.status(404).send({ error: "meeting not found" });
+
+      const live = await listLiveRooms();
+      if (!live.reachable) {
+        return reply.status(502).send({ error: live.error ?? "LiveKit server unreachable" });
+      }
+      const rooms = live.rooms.filter((r) => baseRoomCode(r.name) === meeting.code);
+      if (rooms.length === 0) return reply.status(409).send({ error: "meeting is not live" });
+
+      try {
+        for (const room of rooms) {
+          await withTimeout(roomService().deleteRoom(room.name), "LiveKit deleteRoom");
+        }
+      } catch (err) {
+        app.log.warn({ err }, "admin meeting end failed");
+        return reply.status(502).send({ error: livekitErrorMessage(err) });
+      }
+      writeAudit(db, actor, "meeting.end", "meeting", meeting.id, {
+        code: meeting.code,
+        rooms: rooms.map((r) => r.name),
+      });
+      return reply.status(204).send();
+    },
+  );
+
+  // ---------- §4 Live rooms ----------
+
+  app.get("/api/admin/live", perRoute(ADMIN_RATE_LIMIT), async (request, reply) => {
+    const actor = requireAdmin(request, reply);
+    if (!actor) return reply;
+
+    const live = await listLiveRooms();
+    if (!live.reachable) {
+      return reply.status(200).send({ rooms: [], reachable: false, error: live.error });
+    }
+
+    const byCode = new Map(
+      (
+        db.prepare("SELECT code, title, host_user_id FROM meetings").all() as {
+          code: string;
+          title: string;
+          host_user_id: string;
+        }[]
+      ).map((m) => [m.code, m]),
+    );
+    const hostNames = new Map(
+      (db.prepare("SELECT id, name FROM users").all() as { id: string; name: string }[]).map(
+        (u) => [u.id, u.name],
+      ),
+    );
+
+    const rooms = [];
+    for (const room of live.rooms) {
+      const code = baseRoomCode(room.name);
+      const meeting = byCode.get(code);
+      let participants: LiveParticipant[] = [];
+      try {
+        participants = await withTimeout(
+          roomService().listParticipants(room.name),
+          "LiveKit listParticipants",
+        );
+      } catch (err) {
+        app.log.warn({ err }, "listing participants failed");
+      }
+      rooms.push({
+        name: room.name,
+        meetingCode: meeting ? code : null,
+        meetingTitle: meeting?.title ?? null,
+        hostName: meeting ? (hostNames.get(meeting.host_user_id) ?? null) : null,
+        numParticipants: Number(room.numParticipants ?? 0),
+        startedAt: room.creationTime
+          ? new Date(Number(room.creationTime) * 1000).toISOString()
+          : null,
+        participants: participants.map((p) => ({
+          identity: p.identity,
+          name: p.name,
+          joinedAt: p.joinedAt ? new Date(Number(p.joinedAt) * 1000).toISOString() : null,
+          isPublishing: (p.tracks?.length ?? 0) > 0,
+          isHost: meeting ? p.identity === `user-${meeting.host_user_id}` : false,
+        })),
+      });
+    }
+
+    return reply.status(200).send({ rooms, reachable: true });
+  });
+
+  app.post<{ Params: { room: string }; Body: { identity: string } }>(
+    "/api/admin/live/:room/kick",
+    {
+      ...perRoute(ADMIN_RATE_LIMIT),
+      schema: {
+        params: {
+          type: "object",
+          required: ["room"],
+          properties: { room: { type: "string", minLength: 1, maxLength: 200 } },
+        },
+        body: {
+          type: "object",
+          required: ["identity"],
+          additionalProperties: false,
+          properties: { identity: { type: "string", minLength: 1, maxLength: 300 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const actor = requireAdmin(request, reply);
+      if (!actor) return reply;
+      try {
+        await withTimeout(
+          roomService().removeParticipant(request.params.room, request.body.identity),
+          "LiveKit removeParticipant",
+        );
+      } catch (err) {
+        app.log.warn({ err }, "admin kick failed");
+        return reply.status(502).send({ error: livekitErrorMessage(err) });
+      }
+      writeAudit(db, actor, "live.kick", "room", request.params.room, {
+        identity: request.body.identity,
+      });
+      return reply.status(204).send();
+    },
+  );
+
+  app.post<{ Params: { room: string } }>(
+    "/api/admin/live/:room/end",
+    {
+      ...perRoute(ADMIN_RATE_LIMIT),
+      schema: {
+        params: {
+          type: "object",
+          required: ["room"],
+          properties: { room: { type: "string", minLength: 1, maxLength: 200 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const actor = requireAdmin(request, reply);
+      if (!actor) return reply;
+      try {
+        await withTimeout(roomService().deleteRoom(request.params.room), "LiveKit deleteRoom");
+      } catch (err) {
+        app.log.warn({ err }, "admin room end failed");
+        return reply.status(502).send({ error: livekitErrorMessage(err) });
+      }
+      writeAudit(db, actor, "live.end", "room", request.params.room, { room: request.params.room });
+      return reply.status(204).send();
+    },
+  );
+
+  // ---------- §5 Recordings ----------
+
+  app.get<{ Querystring: { limit?: number; offset?: number } }>(
+    "/api/admin/recordings",
+    { ...perRoute(ADMIN_RATE_LIMIT), schema: { querystring: adminPagination } },
+    async (request, reply) => {
+      const actor = requireAdmin(request, reply);
+      if (!actor) return reply;
+
+      const { limit = 50, offset = 0 } = request.query;
+      const rows = db
+        .prepare(
+          `SELECT r.*, m.code AS meeting_code, m.title AS meeting_title, u.name AS host_name
+           FROM recordings r
+           JOIN meetings m ON m.id = r.meeting_id
+           JOIN users u ON u.id = m.host_user_id
+           ORDER BY r.started_at DESC, r.rowid DESC`,
+        )
+        .all() as (RecordingRow & {
+        meeting_code: string;
+        meeting_title: string;
+        host_name: string;
+      })[];
+
+      let totalBytes = 0;
+      const sizes = new Map<string, number | null>();
+      for (const row of rows) {
+        let size: number | null = null;
+        try {
+          size = (await stat(join(recordingsDir, row.file_name))).size;
+          totalBytes += size;
+        } catch {
+          // no file on disk -> `missing: true` below
+        }
+        sizes.set(row.id, size);
+      }
+
+      const recordings = rows.slice(offset, offset + limit).map((row) => ({
+        id: row.id,
+        meetingCode: row.meeting_code,
+        meetingTitle: row.meeting_title,
+        hostName: row.host_name,
+        startedAt: row.started_at,
+        endedAt: row.ended_at,
+        sizeBytes: sizes.get(row.id) ?? null,
+        missing: sizes.get(row.id) === null || sizes.get(row.id) === undefined,
+      }));
+
+      return reply.status(200).send({ recordings, total: rows.length, totalBytes });
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    "/api/admin/recordings/:id",
+    {
+      ...perRoute(ADMIN_RATE_LIMIT),
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", minLength: 1, maxLength: 100 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const actor = requireAdmin(request, reply);
+      if (!actor) return reply;
+      const row = db.prepare(`${SELECT_RECORDING} WHERE r.id = ?`).get(request.params.id) as
+        | RecordingJoined
+        | undefined;
+      if (!row) return reply.status(404).send({ error: "recording not found" });
+
+      db.transaction(() => {
+        db.prepare("DELETE FROM recordings WHERE id = ?").run(row.id);
+        writeAudit(db, actor, "recording.delete", "recording", row.id, {
+          meetingCode: row.meeting_code,
+          fileName: row.file_name,
+        });
+      })();
+      await unlinkRecordingFiles([row.file_name]);
+      return reply.status(204).send();
+    },
+  );
+
+  // ---------- §6 Settings ----------
+
+  app.get("/api/admin/settings", perRoute(ADMIN_RATE_LIMIT), async (request, reply) => {
+    const actor = requireAdmin(request, reply);
+    if (!actor) return reply;
+    return reply.status(200).send({ settings: readSettings(db) });
+  });
+
+  app.patch<{ Body: Partial<AdminSettings> }>(
+    "/api/admin/settings",
+    {
+      ...perRoute(ADMIN_RATE_LIMIT),
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            registrationOpen: { type: "boolean" },
+            defaultAllowShare: { type: "boolean" },
+            defaultAllowChat: { type: "boolean" },
+            defaultAllowUnmute: { type: "boolean" },
+            defaultWaitingRoom: { type: "boolean" },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const actor = requireAdmin(request, reply);
+      if (!actor) return reply;
+      const patch = request.body ?? {};
+      writeSettings(db, patch);
+      // Only the changed keys and their (boolean) values — no secrets exist here.
+      writeAudit(db, actor, "settings.update", "settings", null, patch);
+      return reply.status(200).send({ settings: readSettings(db) });
+    },
+  );
+
+  // ---------- §7 Audit log ----------
+
+  app.get<{ Querystring: { limit?: number; offset?: number } }>(
+    "/api/admin/audit",
+    { ...perRoute(ADMIN_RATE_LIMIT), schema: { querystring: adminPagination } },
+    async (request, reply) => {
+      const actor = requireAdmin(request, reply);
+      if (!actor) return reply;
+      const { limit = 50, offset = 0 } = request.query;
+      const total = (db.prepare("SELECT COUNT(*) AS n FROM admin_audit").get() as { n: number }).n;
+      const rows = db
+        .prepare("SELECT * FROM admin_audit ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?")
+        .all(limit, offset) as AdminAuditRow[];
+      return reply.status(200).send({ entries: rows.map(auditJson), total });
     },
   );
 
