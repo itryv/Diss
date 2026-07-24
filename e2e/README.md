@@ -42,3 +42,15 @@ Requirements:
 Notes: specs are written against `docs/api-contract.md` (v1 + v2) and the
 known UI strings; v2 features (waiting room) are being built in parallel, so
 those specs are expected to be finalized at integration time.
+
+## Verifying the deployed site
+
+`prod.config.ts` runs the same specs against https://diss.remilekun.dev instead
+of booting local servers:
+
+    npx playwright test --config prod.config.ts
+
+It creates real accounts on production (emails end `@e2e.test`) — delete them
+afterwards, e.g. via a `DELETE FROM users WHERE email LIKE '%@e2e.test'` sweep
+on the server's SQLite DB. recording.spec is skipped there (it checks the local
+filesystem).
