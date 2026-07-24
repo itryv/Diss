@@ -61,6 +61,14 @@ export default defineConfig({
         PORT: '8787',
         DATABASE_PATH: tempDb,
         SESSION_SECRET: 'e2e-test-secret',
+        // Fixed so admin.spec.ts can register an account that IS an admin.
+        // Admin status is only ever granted here, never through the API.
+        ADMIN_EMAILS: 'e2e-admin@e2e.test',
+        // recording.spec.ts needs egress enabled. Without this the suite only
+        // passed when it happened to reuse a hand-started server that had it
+        // set — silently 503ing (and failing) whenever Playwright booted its
+        // own. RECORDING_E2E=1 still gates whether that spec runs at all.
+        EGRESS_ENABLED: 'true',
         LIVEKIT_URL: 'ws://localhost:7880',
         LIVEKIT_API_URL: 'http://localhost:7880',
         LIVEKIT_API_KEY: 'devkey',

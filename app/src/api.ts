@@ -195,7 +195,9 @@ export interface AuditEntry {
   action: string;
   targetType?: string; target_type?: string;
   targetId?: number | string | null; target_id?: number | string | null;
-  detail?: string | null;
+  /** The server returns this already PARSED (admin contract §7) — an object,
+   *  not a JSON string. Typed as unknown so nothing assumes otherwise. */
+  detail?: unknown;
   createdAt?: string; created_at?: string;
 }
 

@@ -6,7 +6,7 @@
 // destructive goes through ConfirmModal, which names the exact target and
 // spells out what cascades.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Component, useCallback, useEffect, useRef, useState } from 'react';
 import type { DependencyList, ReactNode } from 'react';
 import { api, recordingFileUrl } from '../api';
 import type {
@@ -838,17 +838,28 @@ const ACTION_LABEL: Record<string, string> = {
 const isDestructive = (a: string) => a.endsWith('.delete') || a.endsWith('.kick') || a === 'user.disable';
 
 /** `detail` is a short JSON blob per the contract — show it as readable pairs. */
-function fmtDetail(detail: string | null | undefined): string {
-  if (!detail) return '';
-  try {
-    const parsed: unknown = JSON.parse(detail);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return Object.entries(parsed as Record<string, unknown>)
-        .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
-        .join(' · ');
-    }
-    return String(parsed);
-  } catch { return detail; }
+/**
+ * Render an audit entry's `detail` as a one-line string.
+ *
+ * The server returns `detail` ALREADY PARSED as an object (admin contract §7).
+ * This used to be typed as a JSON string and ran JSON.parse() on it, which
+ * throws on an object ("[object Object]" is not JSON) — the catch then handed
+ * the object straight back, and React died rendering an object as a child,
+ * blanking the entire dashboard. So: accept anything, and only parse strings.
+ */
+function fmtDetail(detail: unknown): string {
+  if (detail === null || detail === undefined || detail === '') return '';
+  let value: unknown = detail;
+  if (typeof detail === 'string') {
+    try { value = JSON.parse(detail); } catch { return detail; }
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([k, v]) => `${k}: ${v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
+      .join(' · ');
+  }
+  if (Array.isArray(value)) return JSON.stringify(value);
+  return String(value);
 }
 
 function Audit() {
@@ -899,6 +910,33 @@ function Audit() {
 }
 
 // ── screen ───────────────────────────────────────────────────────────────────
+
+/**
+ * Catches a render error in one admin section and shows it, instead of letting
+ * React unmount the tree and leave an unexplained blank page.
+ */
+class SectionBoundary extends Component<
+  { section: string; children: ReactNode },
+  { err: Error | null }
+> {
+  state: { err: Error | null } = { err: null };
+  static getDerivedStateFromError(err: Error) { return { err }; }
+  componentDidCatch(err: Error) { console.error('[admin] section render failed', err); }
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <div style={{ background: 'rgba(224,96,79,.09)', border: `1px solid ${DANGER}`, borderRadius: 14, padding: 18 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>This section failed to render</div>
+        <div style={{ color: DIM, fontSize: 13.5, marginBottom: 10 }}>
+          The rest of the dashboard still works — switch sections and back to retry.
+        </div>
+        <div style={{ fontFamily: 'monospace', fontSize: 12, color: FAINT, wordBreak: 'break-word' }}>
+          {this.state.err.message}
+        </div>
+      </div>
+    );
+  }
+}
 
 function NotAuthorised() {
   const app = useApp();
@@ -961,13 +999,18 @@ export default function Admin() {
                 </button>
               ))}
             </div>
-            {tab === 'overview' && <Overview />}
-            {tab === 'live' && <Live />}
-            {tab === 'users' && <Users />}
-            {tab === 'meetings' && <Meetings />}
-            {tab === 'recordings' && <Recordings />}
-            {tab === 'settings' && <Settings />}
-            {tab === 'audit' && <Audit />}
+            {/* Keyed on the tab so switching sections clears a previous crash.
+                Without a boundary, one unexpected field from the API takes the
+                whole dashboard to a blank screen with nothing to act on. */}
+            <SectionBoundary key={tab} section={tab}>
+              {tab === 'overview' && <Overview />}
+              {tab === 'live' && <Live />}
+              {tab === 'users' && <Users />}
+              {tab === 'meetings' && <Meetings />}
+              {tab === 'recordings' && <Recordings />}
+              {tab === 'settings' && <Settings />}
+              {tab === 'audit' && <Audit />}
+            </SectionBoundary>
           </div>
         )}
     </main>
