@@ -1,11 +1,38 @@
 # Diss server
 
 TypeScript Fastify backend for the Diss web meeting app. Implements the full
-[API contract](../docs/api-contract.md) including the v2 additions:
-cookie-session auth, meetings CRUD + settings (waiting room / lock), LiveKit
-token minting with waiting-room and lock gating, host/co-host moderation
-(mute/remove/promote/demote) via `RoomServiceClient`, persistent chat
-messages, recording via LiveKit Egress, and per-route rate limiting.
+[API contract](../docs/api-contract.md) (v1 + v2) and the
+[v4 contract](../docs/api-contract-v4.md): cookie-session auth, meetings CRUD +
+settings (waiting room / lock), LiveKit token minting with waiting-room and
+lock gating, host/co-host moderation (mute/remove/promote/demote/allow-share/
+deny-share) via `RoomServiceClient`, persistent chat with signed chat identities,
+private messages and mentions, host permission controls enforced in the LiveKit
+grant, breakout rooms, recording via LiveKit Egress, and per-route rate limiting.
+
+## v4: chat identity, DMs, host permissions, breakouts
+
+- **`chatToken`** — `HMAC-SHA256(SESSION_SECRET, "<meetingId>.<identity>.<displayName>")`,
+  returned as `<b64url(payload)>.<b64url(sig)>` by `POST /api/meetings/:code/token`
+  and by the waiting-room admit poll. Verified with `crypto.timingSafeEqual`
+  (`src/chatToken.ts`). Every message read/write derives the caller's identity
+  and display name from it; `identity`/`displayName` in the request body are
+  accepted for compatibility and **ignored**. Without it, reads are `401`.
+- **Messages** — `POST` takes `{chatToken, text, toIdentity?, mentions?}`
+  (text ≤ 2000, mentions ≤ 50); `GET …/messages?chatToken=…` returns the last 200
+  the caller may see: every public message plus DMs they sent or received.
+- **Host permissions** — `allowShare` / `allowChat` / `allowUnmute` on the meeting
+  (default true), set via `PATCH /api/meetings/:id`. Enforced where it counts, in
+  the minted LiveKit grant: a non-host gets `canPublishSources` without
+  `screen_share` when `allowShare` is false, without `microphone` when
+  `allowUnmute` is false, and `canPublishData: false` when `allowChat` is false.
+  The PATCH also pushes the new permissions to everyone already in the room via
+  `updateParticipant` and reports the outcome as `{liveUpdate: {applied, error?}}`.
+- **Breakout rooms** — `POST/GET /api/meetings/:code/breakouts`,
+  `POST …/breakouts/token`, `POST …/breakouts/close`. LiveKit room name is
+  `<code>__b<idx>`. Membership is server-authoritative: the token endpoint only
+  issues a token for the breakout the caller is assigned to (the host may pass
+  `idx` to visit any), and closing marks every room closed so a stale client
+  cannot rejoin.
 
 ## Stack
 
@@ -49,12 +76,19 @@ respond `503 {error}`.
 npm test
 ```
 
-Boots the server on a random port with a temp SQLite DB and exercises the whole
-API with `fetch` — auth, meetings CRUD + PATCH settings, host/guest tokens
-(JWT grant checks), the waiting-room flow (202 → poll → admit/deny), meeting
-lock (423), moderation authorization incl. promote/demote rules, persistent
-messages (2000-char cap, history order), recording endpoints with egress
-disabled (503), and the register rate limit (429). No LiveKit server required.
+98 checks. Boots the server on a random port with a temp SQLite DB and exercises
+the whole API with `fetch` — auth, meetings CRUD + PATCH settings, host/guest
+tokens (JWT grant checks), the waiting-room flow (202 → poll → admit/deny),
+meeting lock (423), moderation authorization incl. promote/demote and
+allow-share/deny-share, chatToken minting and tamper rejection (flipped
+signature, swapped identity, wrong meeting), persistent messages (2000-char cap,
+50-mention cap, history order) and DM visibility (invisible to a third party),
+permission enforcement decoded out of the minted JWT
+(`canPublishSources`/`canPublishData` for host vs guest), the four breakout
+endpoints incl. "not assigned → 404" and "closed → no token", recording
+endpoints with egress disabled (503), and the register rate limit (429).
+No LiveKit server required — the live `updateParticipant` and moderation calls
+are asserted on their degraded error shape.
 
 ## Environment
 
@@ -65,7 +99,7 @@ See `.env.example`. A `.env` file in this directory is loaded on boot (existing
 | --- | --- |
 | `PORT` | `8787` |
 | `DATABASE_PATH` | `./data/diss.db` (directory auto-created) |
-| `SESSION_SECRET` | random per boot (set one for stable deployments) |
+| `SESSION_SECRET` | random per boot (set one for stable deployments — it also signs v4 chatTokens) |
 | `LIVEKIT_URL` | `ws://localhost:7880` |
 | `LIVEKIT_API_URL` | `http://localhost:7880` |
 | `LIVEKIT_API_KEY` | `devkey` |
@@ -73,13 +107,14 @@ See `.env.example`. A `.env` file in this directory is loaded on boot (existing
 | `CORS_ORIGIN` | `http://localhost:5173` |
 | `EGRESS_ENABLED` | `false` — recording endpoints return 503 until set to `true` |
 | `RECORDINGS_DIR` | `./data/recordings` — shared with the egress container's `/out` |
-| `RATE_LIMIT_WINDOW_MS` | `60000` — rate-limit window (register/login 10, token/waiting/messages 60, global 300 per window per IP) |
+| `RATE_LIMIT_WINDOW_MS` | `60000` — rate-limit window (register/login 10, token/waiting/messages/breakouts 60, global 300 per window per IP) |
 
 ## Layout
 
 - `src/index.ts` — env load + listen
 - `src/app.ts` — Fastify instance, all routes, JSON-schema validation
-- `src/db.ts` — SQLite open + schema + v2 migration
+- `src/db.ts` — SQLite open + schema + v2/v4 migrations (guarded `ALTER TABLE`s)
+- `src/chatToken.ts` — chatToken minting + timing-safe verification
 - `src/auth.ts` — scrypt hashing, session helpers, cookie helpers
 - `src/meetings.ts` — meeting queries + unique `abc-defg-hij` code generation
 - `test/smoke.ts` — end-to-end smoke test

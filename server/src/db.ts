@@ -27,6 +27,9 @@ export interface MeetingRow {
   created_at: string;
   waiting_room: number; // 0 | 1
   locked: number; // 0 | 1
+  allow_share: number; // 0 | 1 — non-hosts may publish a screen share
+  allow_chat: number; // 0 | 1 — non-hosts may publish data (chat/reactions)
+  allow_unmute: number; // 0 | 1 — non-hosts may publish their microphone
 }
 
 export interface WaitingGuestRow {
@@ -46,6 +49,23 @@ export interface MessageRow {
   display_name: string;
   text: string;
   ts: string;
+  to_identity: string | null; // NULL = visible to everyone
+  mentions: string; // JSON array of identities, "*" = @all
+}
+
+export interface BreakoutRow {
+  id: string;
+  meeting_id: string;
+  idx: number;
+  name: string;
+  created_at: string;
+  closed_at: string | null;
+}
+
+export interface BreakoutAssignmentRow {
+  breakout_id: string;
+  identity: string;
+  display_name: string;
 }
 
 export interface RecordingRow {
@@ -112,6 +132,25 @@ export function openDb(databasePath: string): Database.Database {
     );
     CREATE INDEX IF NOT EXISTS idx_messages_meeting ON messages(meeting_id);
 
+    CREATE TABLE IF NOT EXISTS breakouts (
+      id         TEXT PRIMARY KEY,
+      meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+      idx        INTEGER NOT NULL,
+      name       TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      closed_at  TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_breakouts_meeting ON breakouts(meeting_id);
+
+    CREATE TABLE IF NOT EXISTS breakout_assignments (
+      breakout_id  TEXT NOT NULL REFERENCES breakouts(id) ON DELETE CASCADE,
+      identity     TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      PRIMARY KEY (breakout_id, identity)
+    );
+    CREATE INDEX IF NOT EXISTS idx_breakout_assignments_identity
+      ON breakout_assignments(identity);
+
     CREATE TABLE IF NOT EXISTS recordings (
       id         TEXT PRIMARY KEY,
       meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
@@ -133,6 +172,28 @@ export function openDb(databasePath: string): Database.Database {
   }
   if (!meetingCols.includes("locked")) {
     db.exec("ALTER TABLE meetings ADD COLUMN locked INTEGER NOT NULL DEFAULT 0");
+  }
+
+  // v4 migration: host permission defaults on meetings, plus DM/mention columns
+  // on messages. Same PRAGMA guard, so booting an existing database is additive
+  // (every pre-v4 row gets the permissive default) and re-running is a no-op.
+  const meetingColsV4 = (db.pragma("table_info(meetings)") as { name: string }[]).map(
+    (c) => c.name,
+  );
+  for (const column of ["allow_share", "allow_chat", "allow_unmute"]) {
+    if (!meetingColsV4.includes(column)) {
+      db.exec(`ALTER TABLE meetings ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 1`);
+    }
+  }
+
+  const messageCols = (db.pragma("table_info(messages)") as { name: string }[]).map(
+    (c) => c.name,
+  );
+  if (!messageCols.includes("to_identity")) {
+    db.exec("ALTER TABLE messages ADD COLUMN to_identity TEXT");
+  }
+  if (!messageCols.includes("mentions")) {
+    db.exec("ALTER TABLE messages ADD COLUMN mentions TEXT NOT NULL DEFAULT '[]'");
   }
   return db;
 }

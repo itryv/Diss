@@ -23,6 +23,8 @@ const PATHS: Record<string, string> = {
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
   chevronUp: '<path d="m6 15 6-6 6 6"/>',
   share: '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><path d="m9.5 10 2.5-2.5L14.5 10M12 7.5V13"/>',
+  shareOff: '<path d="M3 6a2 2 0 0 1 2-2h11"/><path d="M21 6v9a2 2 0 0 1-2 2H8"/><path d="M8 21h8M12 17v4"/><line x1="2" y1="2" x2="22" y2="22"/>',
+  at: '<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
   user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   chat: '<path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/>',
@@ -44,9 +46,14 @@ const PATHS: Record<string, string> = {
   captions: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M13 15h4M7 11h2M11 11h6"/>',
   blur: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   pip: '<rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="12" width="7" height="5" rx="1"/>',
+  // Drag handle for rearranging tiles — the universal six-dot grip.
+  grip: '<circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/>',
+  // Breakout rooms: one group splitting into separate rooms.
+  breakout: '<rect x="2.5" y="3.5" width="8" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="8" height="7" rx="1.5"/><rect x="2.5" y="13.5" width="8" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="8" height="7" rx="1.5"/>',
+  arrowBack: '<path d="M21 12H7"/><path d="m12 6-6 6 6 6"/><path d="M3 5v14"/>',
 };
 
-const FILLED: Record<string, true> = { play: true, star: true, more: true, record: true, square: true };
+const FILLED: Record<string, true> = { play: true, star: true, more: true, record: true, square: true, grip: true };
 
 export type IconName = keyof typeof PATHS;
 

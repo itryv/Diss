@@ -17,12 +17,14 @@ import {
 import type { Env } from "./env.js";
 import {
   openDb,
+  type BreakoutRow,
   type MeetingRow,
   type MessageRow,
   type RecordingRow,
   type UserRow,
   type WaitingGuestRow,
 } from "./db.js";
+import { mintChatToken, verifyChatToken } from "./chatToken.js";
 import {
   SESSION_COOKIE,
   clearSessionCookie,
@@ -102,26 +104,61 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
     return new RoomServiceClient(env.LIVEKIT_API_URL, env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET);
   }
 
+  /**
+   * The room-wide host controls, expressed as LiveKit publish permissions for a
+   * NON-host participant. Restricting `canPublishSources` supersedes
+   * `canPublish`, so a denied source genuinely cannot be published — the point
+   * of v4 §2: a UI-only toggle is not a control.
+   */
+  function publishPermission(meeting: MeetingRow): {
+    canPublish: boolean;
+    canSubscribe: boolean;
+    canPublishData: boolean;
+    canPublishSources: TrackSource[];
+  } {
+    const sources: TrackSource[] = [TrackSource.CAMERA];
+    if (meeting.allow_unmute !== 0) sources.push(TrackSource.MICROPHONE);
+    if (meeting.allow_share !== 0) {
+      sources.push(TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO);
+    }
+    return {
+      canPublish: true,
+      canSubscribe: true,
+      canPublishData: meeting.allow_chat !== 0,
+      canPublishSources: sources,
+    };
+  }
+
   async function mintToken(
     meeting: MeetingRow,
     identity: string,
     displayName: string,
     isHost: boolean,
+    room: string = meeting.code,
   ): Promise<string> {
     const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
       identity,
       name: displayName,
       ttl: "6h",
     });
+    const unrestricted =
+      meeting.allow_share !== 0 && meeting.allow_chat !== 0 && meeting.allow_unmute !== 0;
     at.addGrant({
-      room: meeting.code,
+      room,
       roomJoin: true,
       canPublish: true,
       canSubscribe: true,
       canPublishData: true,
+      // Hosts are never restricted. Unrestricted meetings keep the v1 grant
+      // shape (no canPublishSources) so nothing changes for existing rooms.
+      ...(isHost || unrestricted ? {} : publishPermission(meeting)),
       ...(isHost ? { roomAdmin: true, roomCreate: true } : {}),
     });
     return at.toJwt();
+  }
+
+  function chatTokenFor(meeting: MeetingRow, identity: string, displayName: string): string {
+    return mintChatToken(env.SESSION_SECRET, meeting.id, identity, displayName);
   }
 
   /**
@@ -142,6 +179,49 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
       // not in the room / unreachable / bad metadata -> not a co-host
     }
     return null;
+  }
+
+  function participantRole(metadata: string | undefined): string | undefined {
+    if (!metadata) return undefined;
+    try {
+      const parsed = JSON.parse(metadata);
+      return parsed && typeof parsed.role === "string" ? parsed.role : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * v4 §2: a permission change must apply to people already in the room, so
+   * push the new permissions to every non-host participant with RoomService
+   * `updateParticipant`. Degrades gracefully — an unreachable LiveKit is
+   * reported in the response, it does not fail the PATCH.
+   */
+  async function applyLivePermissions(
+    meeting: MeetingRow,
+  ): Promise<{ applied: number; error?: string }> {
+    const hostIdentity = `user-${meeting.host_user_id}`;
+    const permission = publishPermission(meeting);
+    try {
+      const rooms = roomService();
+      const participants = await rooms.listParticipants(meeting.code);
+      let applied = 0;
+      for (const participant of participants) {
+        // Hosts and co-hosts are moderators; the room-wide defaults are for
+        // everyone else.
+        if (participant.identity === hostIdentity) continue;
+        if (participantRole(participant.metadata) === "cohost") continue;
+        await rooms.updateParticipant(meeting.code, participant.identity, undefined, permission);
+        applied++;
+      }
+      return { applied };
+    } catch (err) {
+      app.log.warn({ err }, "live permission update failed");
+      return {
+        applied: 0,
+        error: "LiveKit server unreachable or rejected the request",
+      };
+    }
   }
 
   /** Delete waiting-room entries that have not polled for 60s. */
@@ -332,7 +412,15 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
 
   app.patch<{
     Params: { id: string };
-    Body: { title?: string; startsAt?: string | null; waitingRoom?: boolean; locked?: boolean };
+    Body: {
+      title?: string;
+      startsAt?: string | null;
+      waitingRoom?: boolean;
+      locked?: boolean;
+      allowShare?: boolean;
+      allowChat?: boolean;
+      allowUnmute?: boolean;
+    };
   }>(
     "/api/meetings/:id",
     {
@@ -350,6 +438,9 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
             startsAt: { type: ["string", "null"], format: "date-time" },
             waitingRoom: { type: "boolean" },
             locked: { type: "boolean" },
+            allowShare: { type: "boolean" },
+            allowChat: { type: "boolean" },
+            allowUnmute: { type: "boolean" },
           },
         },
       },
@@ -382,7 +473,28 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
           meeting.id,
         );
       }
-      return reply.status(200).send({ meeting: meetingJson(findMeetingById(db, meeting.id)!) });
+      const permissionFields = [
+        ["allowShare", "allow_share"],
+        ["allowChat", "allow_chat"],
+        ["allowUnmute", "allow_unmute"],
+      ] as const;
+      let permissionsChanged = false;
+      for (const [key, column] of permissionFields) {
+        const value = body[key];
+        if (value === undefined) continue;
+        db.prepare(`UPDATE meetings SET ${column} = ? WHERE id = ?`).run(
+          value ? 1 : 0,
+          meeting.id,
+        );
+        permissionsChanged = true;
+      }
+
+      const updated = findMeetingById(db, meeting.id)!;
+      if (permissionsChanged) {
+        const liveUpdate = await applyLivePermissions(updated);
+        return reply.status(200).send({ meeting: meetingJson(updated), liveUpdate });
+      }
+      return reply.status(200).send({ meeting: meetingJson(updated) });
     },
   );
 
@@ -430,7 +542,13 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
       }
 
       const token = await mintToken(meeting, identity, request.body.displayName, isHost);
-      return reply.status(200).send({ token, url: env.LIVEKIT_URL, identity, isHost });
+      return reply.status(200).send({
+        token,
+        url: env.LIVEKIT_URL,
+        identity,
+        isHost,
+        chatToken: chatTokenFor(meeting, identity, request.body.displayName),
+      });
     },
   );
 
@@ -477,6 +595,7 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
           url: env.LIVEKIT_URL,
           identity: guest.identity,
           isHost: false,
+          chatToken: chatTokenFor(meeting, guest.identity, guest.display_name),
         });
       }
       return reply.status(200).send({ status: guest.status });
@@ -564,7 +683,10 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
 
   app.post<{
     Params: { code: string };
-    Body: { action: "mute" | "remove" | "promote" | "demote"; identity: string };
+    Body: {
+      action: "mute" | "remove" | "promote" | "demote" | "allow-share" | "deny-share";
+      identity: string;
+    };
   }>(
     "/api/meetings/:code/moderate",
     {
@@ -579,7 +701,10 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
           required: ["action", "identity"],
           additionalProperties: false,
           properties: {
-            action: { type: "string", enum: ["mute", "remove", "promote", "demote"] },
+            action: {
+              type: "string",
+              enum: ["mute", "remove", "promote", "demote", "allow-share", "deny-share"],
+            },
             identity: { type: "string", minLength: 1, maxLength: 300 },
           },
         },
@@ -622,6 +747,20 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
         } else if (action === "promote" || action === "demote") {
           const metadata = action === "promote" ? JSON.stringify({ role: "cohost" }) : "{}";
           await rooms.updateParticipant(meeting.code, identity, metadata);
+        } else if (action === "allow-share" || action === "deny-share") {
+          // Per-person override on top of the room-wide defaults: the other
+          // sources still follow the meeting's allowUnmute/allowChat settings.
+          const base = publishPermission(meeting);
+          const sources: TrackSource[] = base.canPublishSources.filter(
+            (s) => s !== TrackSource.SCREEN_SHARE && s !== TrackSource.SCREEN_SHARE_AUDIO,
+          );
+          if (action === "allow-share") {
+            sources.push(TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO);
+          }
+          await rooms.updateParticipant(meeting.code, identity, undefined, {
+            ...base,
+            canPublishSources: sources,
+          });
         } else {
           const participant = await rooms.getParticipant(meeting.code, identity);
           const micTrack =
@@ -641,16 +780,39 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
 
   // ---------- Persistent chat ----------
 
-  const messageJson = (row: MessageRow) => ({
-    id: row.id,
-    meetingId: row.meeting_id,
-    identity: row.identity,
-    displayName: row.display_name,
-    text: row.text,
-    ts: row.ts,
-  });
+  const messageJson = (row: MessageRow) => {
+    let mentions: string[] = [];
+    try {
+      const parsed = JSON.parse(row.mentions ?? "[]");
+      if (Array.isArray(parsed)) mentions = parsed.filter((m) => typeof m === "string");
+    } catch {
+      // a hand-edited row shouldn't take the whole history down
+    }
+    return {
+      id: row.id,
+      meetingId: row.meeting_id,
+      identity: row.identity,
+      displayName: row.display_name,
+      text: row.text,
+      ts: row.ts,
+      toIdentity: row.to_identity,
+      mentions,
+    };
+  };
 
-  app.post<{ Params: { code: string }; Body: { text: string; displayName: string } }>(
+  app.post<{
+    Params: { code: string };
+    Body: {
+      chatToken: string;
+      text: string;
+      toIdentity?: string;
+      mentions?: string[];
+      // Accepted for backwards compatibility and deliberately IGNORED — the
+      // sender's identity comes from the chatToken, never from the body.
+      displayName?: string;
+      identity?: string;
+    };
+  }>(
     "/api/meetings/:code/messages",
     {
       ...perRoute(60),
@@ -662,11 +824,19 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
         },
         body: {
           type: "object",
-          required: ["text", "displayName"],
+          required: ["chatToken", "text"],
           additionalProperties: false,
           properties: {
+            chatToken: { type: "string", minLength: 1, maxLength: 4096 },
             text: { type: "string", minLength: 1, maxLength: 2000 },
-            displayName: { type: "string", minLength: 1, maxLength: 200 },
+            toIdentity: { type: "string", minLength: 1, maxLength: 300 },
+            mentions: {
+              type: "array",
+              maxItems: 50,
+              items: { type: "string", minLength: 1, maxLength: 300 },
+            },
+            displayName: { type: "string", maxLength: 200 },
+            identity: { type: "string", maxLength: 300 },
           },
         },
       },
@@ -675,21 +845,196 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
       const meeting = findMeetingByCode(db, request.params.code);
       if (!meeting) return reply.status(404).send({ error: "meeting not found" });
 
-      // No session required; a session upgrades the identity to user-<id>.
-      const user = requireUser(request);
-      const identity = user ? `user-${user.id}` : "guest";
+      const caller = verifyChatToken(env.SESSION_SECRET, request.body.chatToken, meeting.id);
+      if (!caller) return reply.status(401).send({ error: "invalid chat token" });
+
       const id = randomUUID();
       db.prepare(
-        "INSERT INTO messages (id, meeting_id, identity, display_name, text) VALUES (?, ?, ?, ?, ?)",
-      ).run(id, meeting.id, identity, request.body.displayName, request.body.text);
+        `INSERT INTO messages (id, meeting_id, identity, display_name, text, to_identity, mentions)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        meeting.id,
+        caller.identity,
+        caller.displayName,
+        request.body.text,
+        request.body.toIdentity ?? null,
+        JSON.stringify(request.body.mentions ?? []),
+      );
       const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as MessageRow;
       return reply.status(201).send({ message: messageJson(row) });
     },
   );
 
-  app.get<{ Params: { code: string } }>(
+  app.get<{ Params: { code: string }; Querystring: { chatToken?: string } }>(
     "/api/meetings/:code/messages",
     {
+      ...perRoute(60),
+      schema: {
+        params: {
+          type: "object",
+          required: ["code"],
+          properties: { code: { type: "string", minLength: 1, maxLength: 100 } },
+        },
+        querystring: {
+          type: "object",
+          properties: { chatToken: { type: "string", maxLength: 4096 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const meeting = findMeetingByCode(db, request.params.code);
+      if (!meeting) return reply.status(404).send({ error: "meeting not found" });
+
+      const caller = verifyChatToken(env.SESSION_SECRET, request.query.chatToken, meeting.id);
+      if (!caller) return reply.status(401).send({ error: "invalid chat token" });
+
+      // Last 200 the caller may see — every public message plus the DMs they
+      // sent or received — returned oldest first.
+      const rows = db
+        .prepare(
+          `SELECT * FROM messages
+           WHERE meeting_id = ?
+             AND (to_identity IS NULL OR to_identity = ? OR identity = ?)
+           ORDER BY ts DESC, rowid DESC LIMIT 200`,
+        )
+        .all(meeting.id, caller.identity, caller.identity) as MessageRow[];
+      return reply.status(200).send({ messages: rows.reverse().map(messageJson) });
+    },
+  );
+
+  // ---------- Breakout rooms ----------
+
+  /** LiveKit room name for breakout `idx` of meeting `code` (contract v4 §3). */
+  const breakoutRoom = (code: string, idx: number) => `${code}__b${idx}`;
+
+  const openBreakouts = (meetingId: string) =>
+    db
+      .prepare(
+        "SELECT * FROM breakouts WHERE meeting_id = ? AND closed_at IS NULL ORDER BY idx ASC",
+      )
+      .all(meetingId) as BreakoutRow[];
+
+  function breakoutsPayload(meetingId: string) {
+    const rooms = openBreakouts(meetingId);
+    const assignments = db.prepare(
+      "SELECT identity, display_name FROM breakout_assignments WHERE breakout_id = ? ORDER BY rowid ASC",
+    );
+    return rooms.map((b) => ({
+      id: b.id,
+      idx: b.idx,
+      name: b.name,
+      participants: (
+        assignments.all(b.id) as { identity: string; display_name: string }[]
+      ).map((a) => ({ identity: a.identity, displayName: a.display_name })),
+    }));
+  }
+
+  /**
+   * Best-effort display name for an assigned identity: the contract's create
+   * body carries identities only, but the assignments table stores a name.
+   */
+  function knownDisplayName(meetingId: string, identity: string): string {
+    const fromWaiting = db
+      .prepare(
+        "SELECT display_name FROM waiting_guests WHERE meeting_id = ? AND identity = ? ORDER BY rowid DESC LIMIT 1",
+      )
+      .get(meetingId, identity) as { display_name: string } | undefined;
+    if (fromWaiting) return fromWaiting.display_name;
+    const fromMessage = db
+      .prepare(
+        "SELECT display_name FROM messages WHERE meeting_id = ? AND identity = ? ORDER BY rowid DESC LIMIT 1",
+      )
+      .get(meetingId, identity) as { display_name: string } | undefined;
+    if (fromMessage) return fromMessage.display_name;
+    if (identity.startsWith("user-")) {
+      const user = db
+        .prepare("SELECT name FROM users WHERE id = ?")
+        .get(identity.slice("user-".length)) as { name: string } | undefined;
+      if (user) return user.name;
+    }
+    return identity;
+  }
+
+  app.post<{
+    Params: { code: string };
+    Body: { rooms: { name: string; identities: string[] }[] };
+  }>(
+    "/api/meetings/:code/breakouts",
+    {
+      ...perRoute(60),
+      schema: {
+        params: {
+          type: "object",
+          required: ["code"],
+          properties: { code: { type: "string", minLength: 1, maxLength: 100 } },
+        },
+        body: {
+          type: "object",
+          required: ["rooms"],
+          additionalProperties: false,
+          properties: {
+            rooms: {
+              type: "array",
+              minItems: 1,
+              maxItems: 50,
+              items: {
+                type: "object",
+                required: ["name", "identities"],
+                additionalProperties: false,
+                properties: {
+                  name: { type: "string", minLength: 1, maxLength: 200 },
+                  identities: {
+                    type: "array",
+                    maxItems: 200,
+                    items: { type: "string", minLength: 1, maxLength: 300 },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const meeting = findMeetingByCode(db, request.params.code);
+      if (!meeting) return reply.status(404).send({ error: "meeting not found" });
+      const user = requireUser(request);
+      if (!user) return reply.status(401).send({ error: "not authenticated" });
+      if ((await requesterRole(meeting, user)) === null) {
+        return reply.status(403).send({ error: "host or co-host required" });
+      }
+
+      const rooms = request.body.rooms;
+      db.transaction(() => {
+        // "Replaces any open set" — the previous rooms are closed, not deleted,
+        // so their history stays and stale clients can't rejoin them.
+        db.prepare(
+          "UPDATE breakouts SET closed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE meeting_id = ? AND closed_at IS NULL",
+        ).run(meeting.id);
+        const insertBreakout = db.prepare(
+          "INSERT INTO breakouts (id, meeting_id, idx, name) VALUES (?, ?, ?, ?)",
+        );
+        const insertAssignment = db.prepare(
+          "INSERT OR REPLACE INTO breakout_assignments (breakout_id, identity, display_name) VALUES (?, ?, ?)",
+        );
+        rooms.forEach((room, idx) => {
+          const id = randomUUID();
+          insertBreakout.run(id, meeting.id, idx, room.name.trim());
+          for (const identity of room.identities ?? []) {
+            insertAssignment.run(id, identity, knownDisplayName(meeting.id, identity));
+          }
+        });
+      })();
+
+      return reply.status(201).send({ breakouts: breakoutsPayload(meeting.id) });
+    },
+  );
+
+  app.get<{ Params: { code: string } }>(
+    "/api/meetings/:code/breakouts",
+    {
+      ...perRoute(60),
       schema: {
         params: {
           type: "object",
@@ -701,13 +1046,98 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
     async (request, reply) => {
       const meeting = findMeetingByCode(db, request.params.code);
       if (!meeting) return reply.status(404).send({ error: "meeting not found" });
-      // Last 200, returned oldest first.
-      const rows = db
-        .prepare(
-          "SELECT * FROM messages WHERE meeting_id = ? ORDER BY ts DESC, rowid DESC LIMIT 200",
-        )
-        .all(meeting.id) as MessageRow[];
-      return reply.status(200).send({ messages: rows.reverse().map(messageJson) });
+      const breakouts = breakoutsPayload(meeting.id);
+      return reply.status(200).send({ breakouts, open: breakouts.length > 0 });
+    },
+  );
+
+  app.post<{ Params: { code: string }; Body: { chatToken: string; idx?: number } }>(
+    "/api/meetings/:code/breakouts/token",
+    {
+      ...perRoute(60),
+      schema: {
+        params: {
+          type: "object",
+          required: ["code"],
+          properties: { code: { type: "string", minLength: 1, maxLength: 100 } },
+        },
+        body: {
+          type: "object",
+          required: ["chatToken"],
+          additionalProperties: false,
+          properties: {
+            chatToken: { type: "string", minLength: 1, maxLength: 4096 },
+            idx: { type: "integer", minimum: 0, maximum: 999 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const meeting = findMeetingByCode(db, request.params.code);
+      if (!meeting) return reply.status(404).send({ error: "meeting not found" });
+
+      const caller = verifyChatToken(env.SESSION_SECRET, request.body.chatToken, meeting.id);
+      if (!caller) return reply.status(401).send({ error: "invalid chat token" });
+
+      const isHost = caller.identity === `user-${meeting.host_user_id}`;
+      const rooms = openBreakouts(meeting.id);
+      if (rooms.length === 0) {
+        return reply.status(404).send({ error: "no open breakout rooms" });
+      }
+
+      // Server-authoritative: the host may visit any room, everyone else only
+      // gets a token for the room they were assigned to.
+      let target: BreakoutRow | undefined;
+      if (isHost && request.body.idx !== undefined) {
+        target = rooms.find((b) => b.idx === request.body.idx);
+      } else {
+        const assigned = db
+          .prepare(
+            `SELECT b.* FROM breakouts b
+             JOIN breakout_assignments a ON a.breakout_id = b.id
+             WHERE b.meeting_id = ? AND b.closed_at IS NULL AND a.identity = ?
+             ORDER BY b.idx ASC LIMIT 1`,
+          )
+          .get(meeting.id, caller.identity) as BreakoutRow | undefined;
+        if (assigned && request.body.idx !== undefined && assigned.idx !== request.body.idx) {
+          return reply.status(404).send({ error: "not assigned to that breakout room" });
+        }
+        target = assigned;
+      }
+      if (!target) return reply.status(404).send({ error: "not assigned to a breakout room" });
+
+      const room = breakoutRoom(meeting.code, target.idx);
+      const token = await mintToken(meeting, caller.identity, caller.displayName, isHost, room);
+      return reply
+        .status(200)
+        .send({ token, url: env.LIVEKIT_URL, room, breakoutName: target.name });
+    },
+  );
+
+  app.post<{ Params: { code: string } }>(
+    "/api/meetings/:code/breakouts/close",
+    {
+      ...perRoute(60),
+      schema: {
+        params: {
+          type: "object",
+          required: ["code"],
+          properties: { code: { type: "string", minLength: 1, maxLength: 100 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const meeting = findMeetingByCode(db, request.params.code);
+      if (!meeting) return reply.status(404).send({ error: "meeting not found" });
+      const user = requireUser(request);
+      if (!user) return reply.status(401).send({ error: "not authenticated" });
+      if ((await requesterRole(meeting, user)) === null) {
+        return reply.status(403).send({ error: "host or co-host required" });
+      }
+      db.prepare(
+        "UPDATE breakouts SET closed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE meeting_id = ? AND closed_at IS NULL",
+      ).run(meeting.id);
+      return reply.status(204).send();
     },
   );
 

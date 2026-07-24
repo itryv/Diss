@@ -1,6 +1,7 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { PALETTE, devFallbackPeers, useApp } from './store';
 import type { Peer } from './store';
+import { applyTileOrder } from './util';
 import type { Track } from 'livekit-client';
 
 export interface Tile {
@@ -147,7 +148,11 @@ export function useGridMeasure() {
 export function useTiles() {
   const app = useApp();
   const s = app.s;
-  const peers: Peer[] = s.devMode ? devFallbackPeers(s) : s.peers;
+  const joinOrder: Peer[] = s.devMode ? devFallbackPeers(s) : s.peers;
+  // A drag only ever reorders MY grid — the roster itself, and everything
+  // derived from join order (avatar colours), is untouched.
+  const peers: Peer[] = applyTileOrder(joinOrder, s.tileOrder);
+  const colorIdx = new Map(joinOrder.map((p, i) => [p.identity, i]));
   const canMod = s.isHost || s.isCoHost;
   let handCount = 0;
 
@@ -162,7 +167,9 @@ export function useTiles() {
       videoTrack: p.videoTrack,
       screenTrack: p.screenTrack,
       isScreen: false,
-      color: PALETTE[i % PALETTE.length],
+      // Keyed off join order, not grid position: rearranging tiles must not
+      // repaint everyone's avatar a different colour.
+      color: PALETTE[(colorIdx.get(p.identity) ?? i) % PALETTE.length],
       initials: initialsOf(p.name || '?'),
       label: p.isLocal ? `${p.name} (you)` : p.name,
       short: p.isLocal ? 'You' : p.name.split(' ')[0],
@@ -227,6 +234,9 @@ export function useTiles() {
     gridTiles, gridCols: split.cols, gridRows: split.rows,
     gridTileW: split.tileW, gridTileH: split.tileH,
     gridPage, gridPages,
+    /** Order of every tile, as the grid currently shows them (drag commits against this). */
+    order: tiles.map(t => t.identity),
+    customOrder: !!s.tileOrder,
     handsAhead: handCount,
     hasScreenShare: !!screenTile,
     audioShareName: audioOnlySharer ? (audioOnlySharer.isLocal ? 'You' : audioOnlySharer.name) : '',

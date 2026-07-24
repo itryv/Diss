@@ -1,3 +1,18 @@
+/* ──────────────────────────────────────────────────────────────────────────
+   Safe-area insets. index.html ships `viewport-fit=cover`, so on a notched
+   iPhone the page paints under the status bar / home indicator / notch. Every
+   edge-anchored overlay in the app positions itself off these four variables
+   rather than calling env() inline, which (a) keeps the arithmetic in one
+   place and (b) lets a test harness fake a notch on desktop Chromium with a
+   one-line `:root{--sat:44px;--sab:34px}` override.
+   ────────────────────────────────────────────────────────────────────────── */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+}
+
 html, body { margin: 0; padding: 0; background: #151210; color: #f4eee5; }
 /* Nothing may cause horizontal page scroll — the layouts below fit, this is the belt-and-braces. */
 html, body { max-width: 100%; overflow-x: hidden; -webkit-text-size-adjust: 100%; }
@@ -9,6 +24,12 @@ input::placeholder, textarea::placeholder { color: #6f665b; }
 select option { background: #241f1a; color: #f4eee5; }
 button { font-family: inherit; }
 input:focus, textarea:focus { border-color: #f08b5f !important; }
+
+/* The meeting fills the viewport. 100vh on iOS Safari is the *largest* viewport
+   (it ignores the collapsing URL bar), which pushes the control bar below the
+   fold; 100dvh tracks the visible box. The 100vh line stays as the fallback for
+   browsers without dvh. */
+.meeting-root { height: 100vh; height: 100dvh; }
 
 /* hover utilities (design's style-hover equivalents) */
 .hv-bg-2a:hover { background: #2a241e !important; }

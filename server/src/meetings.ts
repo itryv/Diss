@@ -31,6 +31,9 @@ export interface MeetingJson {
   createdAt: string;
   waitingRoom: boolean;
   locked: boolean;
+  allowShare: boolean;
+  allowChat: boolean;
+  allowUnmute: boolean;
 }
 
 export function meetingJson(row: MeetingRow & { host_name: string }): MeetingJson {
@@ -44,6 +47,9 @@ export function meetingJson(row: MeetingRow & { host_name: string }): MeetingJso
     createdAt: row.created_at,
     waitingRoom: row.waiting_room === 1,
     locked: row.locked === 1,
+    allowShare: row.allow_share !== 0,
+    allowChat: row.allow_chat !== 0,
+    allowUnmute: row.allow_unmute !== 0,
   };
 }
 

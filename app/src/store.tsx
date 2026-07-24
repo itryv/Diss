@@ -20,9 +20,12 @@ import type {
 } from 'livekit-client';
 import { BackgroundProcessor, supportsBackgroundProcessors } from '@livekit/track-processors';
 import { api, ApiError, extractCode, meetingLink } from './api';
-import type { Meeting, ModerateAction, TokenResponse, User, WaitingGuest } from './api';
+import type { Breakout, Meeting, ModerateAction, TokenResponse, User, WaitingGuest } from './api';
 import { applySinkId, canCaptureDisplayAudio, canSelectSpeaker, listDevices, playTestTone } from './media';
 import type { DeviceLists } from './media';
+import {
+  breakoutIdxOf, loadTileOrder, mentionsMe, resolveMentions, saveTileOrder, spreadEvenly,
+} from './util';
 
 export type Screen =
   | 'landing' | 'auth' | 'dash' | 'schedule' | 'schedDone' | 'detail'
@@ -34,7 +37,18 @@ export type VideoQuality = 'auto' | 'high' | 'saver';
 export type ShareMode = 'screen' | 'screen-audio' | 'audio';
 export type DeviceKind = 'mic' | 'cam' | 'speaker';
 
-export interface ChatMessage { who: string; text: string; mine: boolean; ts?: number; history?: boolean; }
+export interface ChatMessage {
+  who: string; text: string; mine: boolean; ts?: number; history?: boolean;
+  /** Contract v4: null/undefined = everyone. Anything else is a private message. */
+  toIdentity?: string | null;
+  /** Display name of the recipient, so a DM can say who it went to. */
+  toName?: string;
+  /** Identities mentioned in `text`; `"*"` means @all. */
+  mentions?: string[];
+  /** Pre-computed "this message mentions me" so the list doesn't recompute per render. */
+  mentionsMe?: boolean;
+}
+
 export interface Burst { id: number; name: string; x: string; }
 export interface Toast { id: number; text: string; sticky?: boolean; }
 export interface CaptionLine { id: number; name: string; text: string; interim: boolean; ts: number; }
@@ -99,6 +113,22 @@ const roleOf = (metadata?: string): string => {
   try { return (JSON.parse(metadata) as { role?: string }).role ?? ''; } catch { return ''; }
 };
 
+/**
+ * Numeric LiveKit `TrackSource` values as they arrive on `participant.permissions`
+ * (the wire enum from @livekit/protocol, not the string `Track.Source` the client
+ * SDK uses). An EMPTY `canPublishSources` means "no restriction".
+ */
+const SRC_MICROPHONE = 2;
+const SRC_SCREEN_SHARE = 3;
+
+interface PermissionLike { canPublishData?: boolean; canPublishSources?: number[] }
+
+/** May this participant publish `source`, given their live permissions? */
+const mayPublish = (perm: PermissionLike | undefined, source: number): boolean => {
+  const srcs = perm?.canPublishSources;
+  return !srcs || srcs.length === 0 || srcs.includes(source);
+};
+
 /** View model for one participant in the room (real LiveKit state, or the dev fallback roster). */
 export interface Peer {
   identity: string;
@@ -111,10 +141,18 @@ export interface Peer {
   hand: boolean;
   isHost: boolean;
   isCoHost: boolean;
+  /** Contract v4 §2 — may this person publish a screen share right now? */
+  canShareScreen: boolean;
   videoTrack: Track | null;
   audioTrack: Track | null;
   screenTrack: Track | null;
 }
+
+/** Where I am right now, when that isn't the main meeting room. */
+export interface BreakoutHere { idx: number; name: string; }
+
+/** One room being composed in the host's breakout planner (before it exists). */
+export interface BreakoutDraftRoom { name: string; identities: string[]; }
 
 export interface AppState {
   screen: Screen;
@@ -155,6 +193,31 @@ export interface AppState {
   pinned: string | null; selfCollapsed: boolean; bars: boolean; youreIn: boolean;
   elapsedS: number; unread: number; chatInput: string;
   messages: ChatMessage[]; bursts: Burst[]; toasts: Toast[];
+  // chat identity + addressing (contract v4)
+  chatToken: string | null;
+  /** Composer recipient: null = everyone, otherwise a participant identity. */
+  chatTo: string | null;
+  /** At least one unread message pings me — the badge says so louder. */
+  unreadMention: boolean;
+  // host controls, as they apply to ME right now (from my LiveKit permissions)
+  canShare: boolean; canChat: boolean; canUnmute: boolean;
+  /** Host-controls section expanded inside the People panel. */
+  hostPanelOpen: boolean;
+  // breakout rooms (contract v4 §3)
+  /** The open set, as the server sees it. Empty when none are open. */
+  breakouts: Breakout[];
+  breakoutsOpen: boolean;
+  /** Non-null while I'm in a breakout instead of the main room. */
+  inBreakout: BreakoutHere | null;
+  /** The planner / room-list overlay. */
+  breakoutUi: boolean;
+  /** A room switch (or a create/close call) is in flight. */
+  breakoutBusy: boolean;
+  /** Host's planner state, before the rooms exist on the server. */
+  breakoutDraft: BreakoutDraftRoom[];
+  breakoutAnnounce: string;
+  // local tile order (drag to rearrange) — mine only, never published
+  tileOrder: string[] | null;
   // recording
   recOn: boolean; recBusy: boolean;
   // captions
@@ -201,6 +264,11 @@ const initial: AppState = {
   pinned: null, selfCollapsed: false, bars: true, youreIn: false,
   elapsedS: 0, unread: 0, chatInput: '',
   messages: [], bursts: [], toasts: [],
+  chatToken: null, chatTo: null, unreadMention: false,
+  canShare: true, canChat: true, canUnmute: true, hostPanelOpen: false,
+  breakouts: [], breakoutsOpen: false, inBreakout: null, breakoutUi: false,
+  breakoutBusy: false, breakoutDraft: [], breakoutAnnounce: '',
+  tileOrder: null,
   recOn: false, recBusy: false,
   captionsOn: false, captionLines: [],
   blurOn: prefBool('diss_blur', false), nsOn: prefBool('diss_ns', true), blurSupported,
@@ -225,13 +293,15 @@ export function devFallbackPeers(s: AppState): Peer[] {
   const you: Peer = {
     identity: 'dev-you', name: s.lobbyName || s.user?.name || 'You', isLocal: true,
     micOn: !s.micMuted, camOn: !s.camOff, sharing: s.sharing, speaking: false,
-    hand: s.hand, isHost: s.devRole === 'host', isCoHost: false, videoTrack: null, audioTrack: null, screenTrack: null,
+    hand: s.hand, isHost: s.devRole === 'host', isCoHost: false, canShareScreen: true,
+    videoTrack: null, audioTrack: null, screenTrack: null,
   };
   const others: Peer[] = DEV_NAMES.slice(0, Math.max(1, Math.min(9, s.devParticipantCount - 1))).map((name, i) => ({
     identity: `dev-${i}`, name, isLocal: false,
     micOn: i % 3 !== 2, camOn: false, sharing: false, speaking: false,
     hand: i === 4, isHost: s.devRole !== 'host' && i === 0,
     isCoHost: s.devRole === 'host' && i === 1,
+    canShareScreen: i !== 2,
     videoTrack: null, audioTrack: null, screenTrack: null,
   }));
   return [you, ...others];
@@ -266,14 +336,37 @@ export interface Store {
   sendReaction: (emoji: string) => void;
   togglePanel: (tab: 'chat' | 'people') => void;
   sendChat: () => void;
+  /** Point the composer at one person (private) or at everyone (`null`). */
+  setChatRecipient: (identity: string | null) => void;
   moderatePeer: (identity: string, action: ModerateAction) => Promise<void>;
   muteAll: () => Promise<void>;
   toggleRec: () => void;
+  // breakout rooms (contract v4 §3)
+  /** Open the planner / room list and pull the current server state. */
+  openBreakoutUi: () => void;
+  refreshBreakouts: () => Promise<void>;
+  /** Planner edits (host, before the rooms exist). */
+  setBreakoutRoomCount: (n: number) => void;
+  renameBreakoutRoom: (idx: number, name: string) => void;
+  assignToBreakout: (identity: string, idx: number | null) => void;
+  autoAssignBreakouts: () => void;
+  /** Create the drafted rooms and tell everyone in the main room to move. */
+  startBreakouts: () => Promise<void>;
+  /** Join my assigned room, or (host only) visit room `idx`. */
+  joinBreakout: (idx?: number) => Promise<void>;
+  returnToMain: () => Promise<void>;
+  announceBreakout: () => void;
+  closeBreakouts: () => Promise<void>;
+  // local tile order
+  setTileOrder: (order: string[] | null) => void;
   // waiting room
   cancelWaiting: () => void;
   actOnWaiting: (waitingId: string, action: 'admit' | 'deny') => Promise<void>;
   // meeting settings (host)
-  setMeetingFlag: (body: { waitingRoom?: boolean; locked?: boolean }) => Promise<void>;
+  setMeetingFlag: (body: {
+    waitingRoom?: boolean; locked?: boolean;
+    allowShare?: boolean; allowChat?: boolean; allowUnmute?: boolean;
+  }) => Promise<void>;
   // media extras
   toggleCaptions: () => void;
   toggleJoinPref: (kind: 'muted' | 'camOff') => void;
@@ -319,6 +412,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const captionNotedRef = useRef(false);
   // hidden <audio> elements playing remote screen-share audio, keyed by track sid
   const shareAudioRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  // The MAIN room's token, kept so a breakout can always be left again. LiveKit
+  // tokens live 6h and the meeting/chat token is per-MEETING, so the same grant
+  // re-admits us to the main room without minting anything new.
+  const mainTokenRef = useRef<TokenResponse | null>(null);
+  // breakout poll: ticks are cheap, so people who aren't involved poll slower
+  const breakoutTickRef = useRef(0);
 
   const store = useMemo<Store>(() => {
     const go: Store['go'] = (screen, extra) => patch({ screen, protoOpen: false, newMenuOpen: false, ...extra });
@@ -416,6 +515,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           hand: handRef.current.get(p.identity) ?? false,
           isHost: isLocal ? ref.current.isHost : p.identity === hostIdentity,
           isCoHost: roleOf((p as Participant).metadata) === 'cohost',
+          canShareScreen: mayPublish((p as Participant).permissions, SRC_SCREEN_SHARE),
           videoTrack: camPub?.track ?? null,
           audioTrack: !isLocal ? micPub?.track ?? null : null,
           screenTrack: scrPub?.track ?? null,
@@ -424,14 +524,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     const sync = () => {
-      if (!roomRef.current) return;
+      const room = roomRef.current;
+      if (!room) return;
       const peers = buildPeers();
       const you = peers.find(p => p.isLocal);
       const wasCoHost = ref.current.isCoHost;
       const isCoHost = !!you?.isCoHost;
       const stillSharing = !!you?.sharing;
+
+      // Host controls are enforced in the token, so the truth about what I may
+      // do lives on my own participant permissions — not on the meeting row,
+      // which a guest never sees. The server updates these live (contract v4 §2)
+      // and LiveKit raises ParticipantPermissionsChanged, which lands here.
+      const perm = room.localParticipant.permissions as PermissionLike | undefined;
+      const canShare = mayPublish(perm, SRC_SCREEN_SHARE);
+      const canUnmute = mayPublish(perm, SRC_MICROPHONE);
+      const canChat = perm?.canPublishData !== false;
+      const prev = ref.current;
+
       patch(st => ({
-        peers,
+        peers, canShare, canUnmute, canChat,
         micMuted: you ? !you.micOn : true,
         camOff: you ? !you.camOn : true,
         sharing: stillSharing,
@@ -444,15 +556,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (isCoHost !== wasCoHost && !ref.current.isHost) {
         toast(isCoHost ? "You're a co-host now — you can mute, remove, and admit people" : "You're no longer a co-host");
       }
+      // Say it out loud when the host takes something away (or gives it back) —
+      // a control that quietly stops working reads as a bug.
+      if (canShare !== prev.canShare) {
+        toast(canShare ? 'The host turned screen sharing back on' : 'The host has turned off screen sharing');
+        if (!canShare && stillSharing) stopSharing().catch(() => {});
+      }
+      if (canChat !== prev.canChat) {
+        toast(canChat ? 'The host turned chat back on' : 'The host has turned off chat for participants');
+      }
+      if (canUnmute !== prev.canUnmute) {
+        toast(canUnmute ? 'You can unmute yourself again' : "The host has turned off unmuting — only the host can unmute you");
+      }
       // mic state feeds the caption engine
       window.setTimeout(syncCaptionEngine, 0);
     };
 
-    const publishJson = (topic: string, payload: Record<string, unknown>) => {
+    /**
+     * `to` limits delivery to those identities at the SFU: a private message is
+     * never sent to anyone else's browser, so no other client can surface it.
+     */
+    const publishJson = (topic: string, payload: Record<string, unknown>, to?: string[]) => {
       const room = roomRef.current;
       if (!room) return;
       room.localParticipant
-        .publishData(new TextEncoder().encode(JSON.stringify(payload)), { topic, reliable: true })
+        .publishData(new TextEncoder().encode(JSON.stringify(payload)), {
+          topic,
+          reliable: true,
+          ...(to && to.length ? { destinationIdentities: to } : {}),
+        })
         .catch(() => {});
     };
 
@@ -478,18 +610,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     const onData = (payload: Uint8Array, participant?: RemoteParticipant, _kind?: unknown, topic?: string) => {
-      let msg: { name?: string; text?: string; emoji?: string; up?: boolean; on?: boolean; interim?: boolean; ts?: number };
+      let msg: {
+        name?: string; text?: string; emoji?: string; up?: boolean; on?: boolean;
+        interim?: boolean; ts?: number; to?: string; mentions?: string[];
+        action?: string;
+      };
       try {
         msg = JSON.parse(new TextDecoder().decode(payload));
       } catch { return; }
       const who = msg.name || participant?.name || participant?.identity || 'Someone';
       if (topic === 'chat' && typeof msg.text === 'string') {
-        const chatOpen = ref.current.panel && ref.current.tab === 'chat';
+        const st0 = ref.current;
+        const to = typeof msg.to === 'string' ? msg.to : null;
+        // Belt and braces: destinationIdentities already stopped this reaching
+        // anyone else, but never render a DM that isn't addressed to me.
+        if (to && to !== st0.identity) return;
+        const mentions = Array.isArray(msg.mentions) ? msg.mentions.filter(m => typeof m === 'string') : [];
+        const pingsMe = mentionsMe(mentions, st0.identity);
+        const chatOpen = st0.panel && st0.tab === 'chat';
         patch(st => ({
-          messages: [...st.messages, { who, text: msg.text!, mine: false, ts: typeof msg.ts === 'number' ? msg.ts : Date.now() }],
+          messages: [...st.messages, {
+            who, text: msg.text!, mine: false,
+            ts: typeof msg.ts === 'number' ? msg.ts : Date.now(),
+            toIdentity: to, mentions, mentionsMe: pingsMe,
+          }],
           unread: chatOpen ? 0 : st.unread + 1,
+          unreadMention: chatOpen ? false : st.unreadMention || pingsMe || !!to,
         }));
-        if (!chatOpen) toast(`${who}: ${msg.text.slice(0, 60)}`);
+        if (!chatOpen) {
+          const preview = msg.text.slice(0, 60);
+          toast(to ? `Private message from ${who}: ${preview}`
+            : pingsMe ? `${who} mentioned you: ${preview}`
+            : `${who}: ${preview}`);
+        }
       } else if (topic === 'reaction' && typeof msg.emoji === 'string') {
         spawnBurst(msg.emoji);
       } else if (topic === 'hand' && participant) {
@@ -504,6 +657,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       } else if (topic === 'caption' && typeof msg.text === 'string') {
         pushCaption(who, msg.text.trim(), !!msg.interim, typeof msg.ts === 'number' ? msg.ts : Date.now());
+      } else if (topic === 'breakout') {
+        // Contract v4 §3 — the host broadcasts this in the room it applies to.
+        const st0 = ref.current;
+        if (msg.action === 'open') {
+          refreshBreakouts();
+          // Already somewhere else, or nothing to authenticate with: stay put.
+          if (st0.inBreakout || st0.devMode || !st0.chatToken) return;
+          joinBreakout().catch(() => {});
+        } else if (msg.action === 'close') {
+          patch({ breakouts: [], breakoutsOpen: false });
+          if (st0.inBreakout) returnToMain().catch(() => {});
+        } else if (msg.action === 'announce' && typeof msg.text === 'string' && msg.text.trim()) {
+          toast(`${who}: ${msg.text.trim().slice(0, 200)}`, { sticky: true });
+        }
       }
     };
 
@@ -597,6 +764,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
         })
         .on(RoomEvent.ParticipantMetadataChanged, () => sync())
+        // Host controls are applied live to people already in the room
+        // (contract v4 §2) — this is how a denied control learns it's denied.
+        .on(RoomEvent.ParticipantPermissionsChanged, () => sync())
         .on(RoomEvent.ParticipantDisconnected, p => { handRef.current.delete(p.identity); sync(); })
         .on(RoomEvent.TrackPublished, sync)
         .on(RoomEvent.TrackUnpublished, sync)
@@ -618,12 +788,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
           roomRef.current = null;
           stopCaptionEngine();
           clearShareAudio();
+          // A breakout room that dies under us (host closed it server-side, the
+          // room was emptied, we were removed) must never strand anyone in a
+          // dead room: go back to the main meeting instead of ending the call.
+          if (!leavingRef.current && ref.current.screen === 'meeting' && ref.current.inBreakout) {
+            returnToMain().catch(() => {});
+            return;
+          }
           if (!leavingRef.current && ref.current.screen === 'meeting') {
             patch({
               screen: 'post', postKind: 'ended', peers: [], panel: false, leaveOpen: false,
               reconnecting: false, sharing: false, hand: false, reactionsOpen: false, moreOpen: false,
               rating: 0, issues: [], ratedDone: false,
               recOn: false, recBusy: false, captionLines: [], waitingGuests: [], isCoHost: false, gridPage: 0,
+              chatToken: null, chatTo: null, unreadMention: false, hostPanelOpen: false,
+              breakouts: [], breakoutsOpen: false, inBreakout: null, breakoutUi: false,
+              breakoutBusy: false, breakoutDraft: [], breakoutAnnounce: '', tileOrder: null,
             });
           }
         });
@@ -760,9 +940,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    /** Connect to LiveKit with a granted token (direct join, or after being admitted from the waiting room). */
-    const connectWithToken = async ({ token, url, identity, isHost }: TokenResponse) => {
+    /**
+     * Connect to LiveKit with a granted token.
+     *
+     * This is the ONLY connect path: direct join, admitted-from-the-waiting-room,
+     * joining a breakout and coming back from one all land here, so tracks,
+     * blur, noise suppression, quality, captions, permission wiring and every
+     * room event handler are established the same way every time.
+     *
+     * `breakout` says which room this token is for — null means the main room.
+     */
+    const connectWithToken = async (
+      { token, url, identity, isHost, chatToken }: TokenResponse,
+      breakout: BreakoutHere | null = null,
+    ) => {
       const st = ref.current;
+      // Moving between rooms mid-meeting: carry my live mic/camera state across
+      // rather than re-applying the lobby's "join muted" preferences.
+      const switching = st.screen === 'meeting' && !!st.identity;
+      const wantMic = switching ? !st.micMuted : st.lobbyMic;
+      const wantCam = switching ? !st.camOff : st.lobbyCam;
       stopPreview();
       const preset = qualityPreset(st.videoQuality);
       const room = new Room({
@@ -790,38 +987,61 @@ export function AppProvider({ children }: { children: ReactNode }) {
       seenWaitingRef.current = new Set();
       leavingRef.current = false;
       await room.connect(url, token);
+      if (!breakout) mainTokenRef.current = { token, url, identity, isHost, chatToken };
       patch({
         screen: 'meeting', devMode: false, identity, isHost, joining: false,
-        youreIn: true, elapsedS: 0, panel: false, view: 'grid', pinned: null,
+        youreIn: true, elapsedS: switching ? ref.current.elapsedS : 0, panel: false, view: 'grid', pinned: null,
         messages: [], unread: 0, bursts: [], hand: false, sharing: false,
-        micMuted: !st.lobbyMic, camOff: !st.lobbyCam, reconnecting: false,
+        micMuted: !wantMic, camOff: !wantCam, reconnecting: false,
         connQuality: ConnectionQuality.Unknown, protoOpen: false,
         waitingId: null, waitingDenied: false, waitingGuests: [],
         isCoHost: false, recOn: false, captionLines: [], gridPage: 0,
         shareHasAudio: false, shareAudioOnly: false,
+        chatToken: chatToken ?? null, chatTo: null, unreadMention: false, hostPanelOpen: false,
+        canShare: true, canChat: true, canUnmute: true,
+        inBreakout: breakout, breakoutUi: false, breakoutAnnounce: '',
+        ...(breakout ? {} : { breakoutDraft: [] }),
+        // The layout you arranged is yours and per-meeting — it survives a trip
+        // into a breakout room and back.
+        tileOrder: st.meeting ? loadTileOrder(st.meeting.code) : null,
       });
       window.setTimeout(() => patch({ youreIn: false }), 1400);
       if (st.speakerId && canSelectSpeaker()) {
         room.switchActiveDevice('audiooutput', st.speakerId).catch(() => { /* device vanished */ });
       }
       try {
-        if (st.lobbyMic) await room.localParticipant.setMicrophoneEnabled(true);
-        if (st.lobbyCam) await room.localParticipant.setCameraEnabled(true);
+        if (wantMic) await room.localParticipant.setMicrophoneEnabled(true);
+        if (wantCam) await room.localParticipant.setCameraEnabled(true);
       } catch {
         toast("Couldn't start your mic or camera — you can still watch and listen");
       }
-      if (st.lobbyCam && st.blurOn) applyBlur(true).catch(() => {});
-      // Seed the chat panel with persisted history (contract v2)
-      const meetingCode = st.meeting?.code;
-      if (meetingCode) {
-        api.listMessages(meetingCode).then(({ messages }) => {
+      if (wantCam && st.blurOn) applyBlur(true).catch(() => {});
+      // Seed the chat panel with persisted history. The server filters this to
+      // what the chatToken's identity may see — public messages plus their own
+      // DMs — so nothing here can leak someone else's private thread.
+      //
+      // NOT in a breakout: persisted history is stored per MEETING, so pulling
+      // it in would drop the main-room transcript into a side room (and, with
+      // the matching POST, drop side-room chat into the transcript). Breakout
+      // chat is live-only over this room's data channel — see `sendChat`.
+      const meetingCode = breakout ? undefined : st.meeting?.code;
+      if (meetingCode && chatToken) {
+        api.listMessages(meetingCode, chatToken).then(({ messages }) => {
           if (roomRef.current !== room || messages.length === 0) return;
+          const nameFor = (id: string) =>
+            messages.find(m => m.identity === id)?.displayName
+            ?? roomRef.current?.getParticipantByIdentity(id)?.name
+            ?? 'them';
           const history: ChatMessage[] = messages.map(m => ({
             who: m.displayName,
             text: m.text,
-            mine: m.identity !== 'guest' && m.identity === identity,
+            mine: m.identity === identity,
             ts: new Date(m.ts).getTime() || Date.now(),
             history: true,
+            toIdentity: m.toIdentity ?? null,
+            toName: m.toIdentity ? (m.toIdentity === identity ? 'you' : nameFor(m.toIdentity)) : undefined,
+            mentions: m.mentions ?? [],
+            mentionsMe: mentionsMe(m.mentions, identity) && m.identity !== identity,
           }));
           patch(c => ({ messages: [...history, ...c.messages] }));
         }).catch(() => { /* history is a nice-to-have */ });
@@ -906,11 +1126,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const leaveMeeting: Store['leaveMeeting'] = (kind) => {
       disconnectRoom();
+      mainTokenRef.current = null;
       patch({
         screen: 'post', postKind: kind, leaveOpen: false, panel: false,
         rating: 0, issues: [], ratedDone: false, peers: [], devMode: false,
         sharing: false, hand: false, reactionsOpen: false, moreOpen: false, reconnecting: false,
         recOn: false, recBusy: false, captionLines: [], waitingGuests: [], isCoHost: false, gridPage: 0,
+        chatToken: null, chatTo: null, unreadMention: false, hostPanelOpen: false,
+        breakouts: [], breakoutsOpen: false, inBreakout: null, breakoutUi: false,
+        breakoutBusy: false, breakoutDraft: [], breakoutAnnounce: '', tileOrder: null,
       });
     };
 
@@ -918,6 +1142,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const st = ref.current;
       const code = st.meeting?.code;
       if (code && st.isHost) {
+        // Close the side rooms first: ending the meeting must not leave people
+        // talking to each other in a breakout nobody is coming back to.
+        if (st.breakoutsOpen) {
+          publishJson('breakout', { action: 'close', ts: Date.now() });
+          await api.closeBreakouts(code).catch(() => {});
+        }
         const remotes = st.peers.filter(p => !p.isLocal);
         await Promise.allSettled(remotes.map(p => api.moderate(code, 'remove', p.identity)));
       }
@@ -928,6 +1158,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const room = roomRef.current;
       if (!room) { patch(st => ({ micMuted: !st.micMuted })); return; }
       const enable = ref.current.micMuted;
+      // Enforced in the token: publishing the mic would simply be rejected.
+      if (enable && !ref.current.canUnmute) {
+        toast("The host has turned off unmuting — ask them to unmute you");
+        return;
+      }
       room.localParticipant.setMicrophoneEnabled(enable)
         .then(sync)
         .catch(() => toast("Couldn't switch your mic — check browser permissions"));
@@ -970,6 +1205,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (ref.current.sharing) { await stopSharing(); return; }
+      if (!ref.current.canShare) {
+        toast('The host has turned off screen sharing for participants');
+        return;
+      }
 
       let mode = requested;
       if (mode !== 'screen' && !canCaptureDisplayAudio()) {
@@ -1107,15 +1346,57 @@ export function AppProvider({ children }: { children: ReactNode }) {
       publishJson('reaction', { name: st.lobbyName || st.user?.name || 'You', emoji, ts: Date.now() });
     };
 
+    /** Everyone the composer can address / mention: the live roster, or the dev roster. */
+    const rosterOf = (st: AppState): Peer[] => (st.devMode ? devFallbackPeers(st) : st.peers);
+
+    const setChatRecipient: Store['setChatRecipient'] = (identity) => {
+      patch({ chatTo: identity, panel: true, tab: 'chat', unread: 0, unreadMention: false });
+    };
+
     const sendChat = () => {
       const st = ref.current;
       const text = st.chatInput.trim().slice(0, 2000);
       if (!text) return;
+      if (!st.canChat) { toast('The host has turned off chat for participants'); return; }
       const name = st.lobbyName || st.user?.name || 'You';
-      patch(c => ({ messages: [...c.messages, { who: 'You', text, mine: true, ts: Date.now() }], chatInput: '' }));
-      publishJson('chat', { name, text, ts: Date.now() });
-      // Persist (fire-and-forget) so late joiners see history
-      if (st.meeting && !st.devMode) api.postMessage(st.meeting.code, text, name).catch(() => {});
+      const roster = rosterOf(st);
+      const mentions = resolveMentions(text, roster.map(p => ({ identity: p.identity, name: p.name })));
+
+      // A recipient who has left goes back to everyone rather than silently
+      // vanishing into a DM nobody can read.
+      const target = st.chatTo ? roster.find(p => p.identity === st.chatTo && !p.isLocal) : undefined;
+      if (st.chatTo && !target) toast('That person has left — sent to everyone instead');
+      const toIdentity = target ? target.identity : null;
+      const ts = Date.now();
+
+      patch(c => ({
+        messages: [...c.messages, {
+          who: 'You', text, mine: true, ts,
+          toIdentity, toName: target?.name, mentions,
+        }],
+        chatInput: '',
+        chatTo: toIdentity,
+      }));
+      publishJson(
+        'chat',
+        { name, text, ts, ...(toIdentity ? { to: toIdentity } : {}), ...(mentions.length ? { mentions } : {}) },
+        toIdentity ? [toIdentity] : undefined,
+      );
+      // Persist (fire-and-forget) so late joiners see history. Identity and
+      // display name come from the chatToken server-side, never from us.
+      //
+      // Never from inside a breakout: the store is per MEETING, so persisting
+      // side-room chatter would splice it into the main transcript for everyone.
+      // In a breakout the data channel above is the whole story — live, isolated
+      // to that LiveKit room, and not saved.
+      if (st.meeting && !st.devMode && st.chatToken && !st.inBreakout) {
+        api.postMessage(st.meeting.code, {
+          chatToken: st.chatToken,
+          text,
+          ...(toIdentity ? { toIdentity } : {}),
+          ...(mentions.length ? { mentions } : {}),
+        }).catch(() => {});
+      }
     };
 
     const moderatePeer = async (identity: string, action: ModerateAction) => {
@@ -1131,7 +1412,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           action === 'mute' ? `Muted ${first}`
           : action === 'remove' ? `Removed ${first} from the meeting`
           : action === 'promote' ? `${first} is a co-host now`
-          : `${first} is no longer a co-host`,
+          : action === 'demote' ? `${first} is no longer a co-host`
+          : action === 'allow-share' ? `${first} can share their screen`
+          : `${first} can no longer share their screen`,
         );
       } catch (e) { toast(errMsg(e)); }
     };
@@ -1157,7 +1440,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     // ── meeting settings (host only) ──────────────────────────────────────────
-    const setMeetingFlag = async (body: { waitingRoom?: boolean; locked?: boolean }) => {
+    const setMeetingFlag: Store['setMeetingFlag'] = async (body) => {
       const m = ref.current.meeting;
       if (!m) return;
       try {
@@ -1165,7 +1448,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         patch({ meeting });
         if (body.locked !== undefined) toast(body.locked ? 'Meeting locked — no one new can join' : 'Meeting unlocked');
         if (body.waitingRoom !== undefined) toast(body.waitingRoom ? 'Waiting room is on — new guests wait for you' : 'Waiting room is off');
-      } catch (e) { toast(errMsg(e)); }
+        // Host controls: the server re-applies these to everyone already in the
+        // room, so the wording is about what participants can do right now.
+        if (body.allowShare !== undefined) toast(body.allowShare ? 'Participants can share their screen' : 'Only hosts can share their screen now');
+        if (body.allowChat !== undefined) toast(body.allowChat ? 'Participants can chat' : 'Chat is off for participants');
+        if (body.allowUnmute !== undefined) toast(body.allowUnmute ? 'Participants can unmute themselves' : 'Participants can no longer unmute themselves');
+      } catch (e) {
+        toast(e instanceof ApiError && e.status === 403 ? 'Only the host can change these settings' : errMsg(e));
+      }
     };
 
     // ── recording ─────────────────────────────────────────────────────────────
@@ -1194,6 +1484,186 @@ export function AppProvider({ children }: { children: ReactNode }) {
             toast(errMsg(e));
           }
         });
+    };
+
+    // ── breakout rooms (contract v4 §3) ───────────────────────────────────────
+
+    const refreshBreakouts = async () => {
+      const st = ref.current;
+      if (!st.meeting || st.devMode) return;
+      try {
+        const { breakouts, open } = await api.listBreakouts(st.meeting.code);
+        patch({ breakouts, breakoutsOpen: open });
+      } catch { /* transient — the poll tries again */ }
+    };
+
+    /** Everyone the planner can put in a room: the live roster, minus me. */
+    const assignable = (st: AppState) => rosterOf(st).filter(p => !p.isLocal);
+
+    const blankDraft = (n: number, prev: BreakoutDraftRoom[]): BreakoutDraftRoom[] =>
+      Array.from({ length: n }, (_, i) => prev[i] ?? { name: `Room ${i + 1}`, identities: [] });
+
+    const setBreakoutRoomCount: Store['setBreakoutRoomCount'] = (n) => {
+      // Shrinking drops the trailing rooms; anyone who was in one lands back in
+      // "not assigned" rather than silently vanishing from the plan.
+      const count = Math.max(1, Math.min(20, n));
+      patch(st => ({ breakoutDraft: blankDraft(count, st.breakoutDraft) }));
+    };
+
+    const renameBreakoutRoom: Store['renameBreakoutRoom'] = (idx, name) => {
+      patch(st => ({
+        breakoutDraft: st.breakoutDraft.map((r, i) => (i === idx ? { ...r, name: name.slice(0, 60) } : r)),
+      }));
+    };
+
+    const assignToBreakout: Store['assignToBreakout'] = (identity, idx) => {
+      patch(st => ({
+        breakoutDraft: st.breakoutDraft.map((r, i) => ({
+          ...r,
+          identities: i === idx
+            ? (r.identities.includes(identity) ? r.identities : [...r.identities, identity])
+            : r.identities.filter(id => id !== identity),
+        })),
+      }));
+    };
+
+    const autoAssignBreakouts = () => {
+      const st = ref.current;
+      const rooms = st.breakoutDraft.length ? st.breakoutDraft : blankDraft(2, []);
+      const buckets = spreadEvenly(assignable(st).map(p => p.identity), rooms.length);
+      patch({ breakoutDraft: rooms.map((r, i) => ({ ...r, identities: buckets[i] ?? [] })) });
+    };
+
+    const openBreakoutUi = () => {
+      patch(st => ({
+        breakoutUi: true, moreOpen: false,
+        breakoutDraft: st.breakoutDraft.length ? st.breakoutDraft : blankDraft(2, []),
+      }));
+      refreshBreakouts();
+    };
+
+    const startBreakouts = async () => {
+      const st = ref.current;
+      if (!st.meeting || st.devMode || st.breakoutBusy) return;
+      if (!(st.isHost || st.isCoHost)) return;
+      const rooms = st.breakoutDraft
+        .map((r, i) => ({ name: r.name.trim() || `Room ${i + 1}`, identities: r.identities }));
+      if (!rooms.length) return;
+      patch({ breakoutBusy: true });
+      try {
+        const { breakouts } = await api.createBreakouts(st.meeting.code, rooms);
+        patch({ breakouts, breakoutsOpen: true, breakoutUi: false, breakoutBusy: false });
+        // Everyone still in the MAIN room hears this and moves themselves
+        // (contract v4 §3). Membership is server-authoritative either way.
+        publishJson('breakout', { action: 'open', ts: Date.now() });
+        toast(`Breakout rooms are open — ${breakouts.length} room${breakouts.length === 1 ? '' : 's'}`);
+      } catch (e) {
+        patch({ breakoutBusy: false });
+        toast(e instanceof ApiError && e.status === 403 ? 'Only the host or a co-host can open breakout rooms' : errMsg(e));
+      }
+    };
+
+    /**
+     * Move into a breakout room. A full room switch that goes back through
+     * `connectWithToken`, so nothing about the connection is special-cased.
+     */
+    const joinBreakout: Store['joinBreakout'] = async (idx) => {
+      const st = ref.current;
+      if (!st.meeting || st.devMode || st.breakoutBusy) return;
+      if (!st.chatToken) { toast("Breakout rooms need a live meeting connection"); return; }
+      patch({ breakoutBusy: true, breakoutUi: false, moreOpen: false });
+      let grant;
+      try {
+        grant = await api.breakoutToken(st.meeting.code, st.chatToken, idx);
+      } catch (e) {
+        patch({ breakoutBusy: false });
+        // 404 = not assigned / nothing open. That is a normal outcome, not a
+        // failure: you simply stay in the main meeting.
+        if (e instanceof ApiError && e.status === 404) {
+          refreshBreakouts();
+          toast(st.inBreakout || idx !== undefined
+            ? 'That breakout room is no longer open'
+            : "Breakout rooms are open, but you weren't assigned to one — you're staying in the main meeting");
+        } else {
+          toast(errMsg(e));
+        }
+        return;
+      }
+      const here: BreakoutHere = { idx: breakoutIdxOf(grant.room) ?? idx ?? 0, name: grant.breakoutName };
+      try {
+        disconnectRoom();
+        await connectWithToken(
+          { token: grant.token, url: grant.url, identity: st.identity, isHost: st.isHost, chatToken: st.chatToken },
+          here,
+        );
+        patch({ breakoutBusy: false });
+        toast(`You're in “${here.name}” — chat here isn't saved with the meeting`);
+      } catch {
+        // Never strand anyone: fall back to the room we know we can get into.
+        patch({ breakoutBusy: false });
+        toast("Couldn't join that breakout room — taking you back to the main meeting");
+        await returnToMain();
+      }
+    };
+
+    /** Leave whatever breakout I'm in and rejoin the main meeting room. */
+    const returnToMain = async () => {
+      const main = mainTokenRef.current;
+      if (!ref.current.inBreakout && roomRef.current) return;
+      if (!main) {
+        // Nothing to go back to (shouldn't happen) — end cleanly rather than
+        // sitting in a room that no longer exists.
+        leaveMeeting('ended');
+        return;
+      }
+      patch({ breakoutBusy: true, breakoutUi: false });
+      try {
+        disconnectRoom();
+        await connectWithToken(main, null);
+        patch({ breakoutBusy: false });
+        toast('Back in the main meeting');
+      } catch (e) {
+        patch({ breakoutBusy: false });
+        toast(errMsg(e));
+        leaveMeeting('ended');
+      }
+    };
+
+    const announceBreakout = () => {
+      const st = ref.current;
+      const text = st.breakoutAnnounce.trim().slice(0, 200);
+      if (!text || !(st.isHost || st.isCoHost)) return;
+      publishJson('breakout', { action: 'announce', text, name: st.lobbyName || st.user?.name || 'Host', ts: Date.now() });
+      patch({ breakoutAnnounce: '' });
+      // Data messages only reach the LiveKit room you are in — say where it went.
+      toast(st.inBreakout ? `Announced in “${st.inBreakout.name}”` : 'Announced to the main room');
+    };
+
+    const closeBreakouts = async () => {
+      const st = ref.current;
+      if (!st.meeting || st.devMode || st.breakoutBusy) return;
+      if (!(st.isHost || st.isCoHost)) return;
+      patch({ breakoutBusy: true });
+      try {
+        // Server first: `open` flips to false there, which is what everyone in a
+        // side room is polling for. The data message is only the fast path for
+        // whoever is still in this room.
+        await api.closeBreakouts(st.meeting.code);
+        publishJson('breakout', { action: 'close', ts: Date.now() });
+        patch({ breakouts: [], breakoutsOpen: false, breakoutBusy: false, breakoutUi: false, breakoutDraft: [] });
+        toast('Breakout rooms closed — everyone comes back to the main meeting');
+        if (ref.current.inBreakout) await returnToMain();
+      } catch (e) {
+        patch({ breakoutBusy: false });
+        toast(e instanceof ApiError && e.status === 403 ? 'Only the host or a co-host can close breakout rooms' : errMsg(e));
+      }
+    };
+
+    // ── local tile order ──────────────────────────────────────────────────────
+    const setTileOrder: Store['setTileOrder'] = (order) => {
+      const code = ref.current.devMode ? 'dev' : ref.current.meeting?.code;
+      if (code) saveTileOrder(code, order);
+      patch({ tileOrder: order, moreOpen: false });
     };
 
     // ── captions / blur / noise suppression / PiP ─────────────────────────────
@@ -1260,7 +1730,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       submitAuth, signOut,
       loadMeetings, createInstantMeeting, scheduleMeeting, deleteMeeting, openCode, openMeeting,
       joinMeeting, leaveMeeting, endForAll,
-      toggleMic, toggleCam, toggleShare, toggleHand, sendReaction, sendChat,
+      toggleMic, toggleCam, toggleShare, toggleHand, sendReaction, sendChat, setChatRecipient,
       moderatePeer, muteAll,
       cancelWaiting, actOnWaiting, setMeetingFlag,
       toggleCaptions, toggleJoinPref, toggleBlur, toggleNs, togglePip,
@@ -1269,8 +1739,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         panel: st.panel && st.tab === tab ? false : true,
         tab,
         unread: tab === 'chat' ? 0 : st.unread,
+        unreadMention: tab === 'chat' ? false : st.unreadMention,
       })),
       toggleRec,
+      openBreakoutUi, refreshBreakouts, setBreakoutRoomCount, renameBreakoutRoom,
+      assignToBreakout, autoAssignBreakouts, startBreakouts, joinBreakout,
+      returnToMain, announceBreakout, closeBreakouts,
+      setTileOrder,
       refreshDevices, selectDevice, setVideoQuality,
       testSpeaker: async () => {
         if (ref.current.speakerTesting) return;
@@ -1306,6 +1781,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           screen: 'meeting', devMode: true, protoOpen: false, isHost: ref.current.devRole === 'host',
           youreIn: true, elapsedS: 0, panel: false, view: 'grid', pinned: null,
           messages: [], unread: 0, bursts: [], hand: false, sharing: false, reconnecting: false,
+          chatTo: null, unreadMention: false, hostPanelOpen: false,
+          canShare: true, canChat: true, canUnmute: true,
+          breakouts: [], breakoutsOpen: false, inBreakout: null, breakoutUi: false,
+          breakoutBusy: false, breakoutDraft: [], breakoutAnnounce: '',
+          tileOrder: loadTileOrder('dev'),
         });
         window.setTimeout(() => patch({ youreIn: false }), 1400);
       },
@@ -1391,6 +1871,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(t);
   }, [store]);
 
+  // Breakout rooms: the server's `open` flag is the authority.
+  //
+  // A data message only reaches the LiveKit room it was published in, so
+  // someone sitting in "Design team" never hears the host close the rooms from
+  // the main room. Polling `GET /breakouts` is what actually guarantees nobody
+  // is left in a dead room — the `close` broadcast is only the fast path.
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      const st = ref.current;
+      if (st.screen !== 'meeting' || st.devMode || !st.meeting) return;
+      const involved = !!st.inBreakout || st.breakoutsOpen || st.breakoutUi || st.isHost || st.isCoHost;
+      breakoutTickRef.current += 1;
+      // Everyone polls, but people with nothing to do with breakouts do it at
+      // a third of the rate (well inside the 60/min limit either way).
+      if (!involved && breakoutTickRef.current % 3 !== 0) return;
+      api.listBreakouts(st.meeting.code)
+        .then(({ breakouts, open }) => {
+          const now = ref.current;
+          if (now.screen !== 'meeting') return;
+          if (now.breakoutsOpen !== open || now.breakouts.length !== breakouts.length
+            || JSON.stringify(now.breakouts) !== JSON.stringify(breakouts)) {
+            patch({ breakouts, breakoutsOpen: open });
+          }
+          if (!open && now.inBreakout && !now.breakoutBusy) {
+            store.toast('Breakout rooms are closed');
+            store.returnToMain().catch(() => {});
+          }
+        })
+        .catch(() => { /* transient — next tick retries */ });
+    }, 5000);
+    return () => window.clearInterval(t);
+  }, [store]);
+
   // keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1402,7 +1915,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       else if (k === 'v') store.toggleCam();
       else if (k === 'c') store.togglePanel('chat');
       else if (k === 'p') store.togglePanel('people');
-      else if (k === 'escape') patch({ panel: false, reactionsOpen: false, moreOpen: false, leaveOpen: false, shortcutsOpen: false, connPop: false });
+      else if (k === 'escape') patch({ panel: false, reactionsOpen: false, moreOpen: false, leaveOpen: false, shortcutsOpen: false, connPop: false, breakoutUi: false });
     };
     window.addEventListener('keydown', onKey);
     return () => {

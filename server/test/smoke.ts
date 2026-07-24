@@ -471,33 +471,131 @@ try {
     ok(`host "${action}" reaches LiveKit and degrades gracefully (${r.status}) when unreachable`);
   }
 
-  // --- v2: persistent messages ---
+  // --- v4: chatToken minting ---
+  let hostChat: string;
+  let hostIdentity: string;
+  let guestChat: string;
+  let guestIdentity: string;
+  let thirdChat: string;
   {
-    const r = await api("POST", `/api/meetings/${instant.code}/messages`, {}, {
-      text: "hello from a guest",
+    const r = await api("POST", `/api/meetings/${instant.code}/token`, host, {
+      displayName: "Remi",
+    });
+    assert.equal(r.status, 200);
+    assert.equal(typeof r.json.chatToken, "string");
+    const [payload, sig] = r.json.chatToken.split(".");
+    assert.ok(payload && sig, "chatToken must be <b64url(payload)>.<sig>");
+    assert.equal(
+      Buffer.from(payload, "base64url").toString("utf8"),
+      `${instant.id}.user-${instant.hostUserId}.Remi`,
+    );
+    hostChat = r.json.chatToken;
+    hostIdentity = r.json.identity;
+    ok("token response carries a chatToken over <meetingId>.<identity>.<displayName>");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/token`, {}, {
       displayName: "Visitor",
     });
+    assert.equal(r.status, 200);
+    assert.equal(typeof r.json.chatToken, "string");
+    guestChat = r.json.chatToken;
+    guestIdentity = r.json.identity;
+    ok("guest token response carries a chatToken too");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/token`, {}, {
+      displayName: "Third Party",
+    });
+    assert.equal(r.status, 200);
+    thirdChat = r.json.chatToken;
+    ok("a third participant gets its own chatToken");
+  }
+  {
+    // waiting-room admit must mint one as well
+    const patch = await api("PATCH", `/api/meetings/${instant.id}`, host, { waitingRoom: true });
+    assert.equal(patch.status, 200);
+    const join = await api("POST", `/api/meetings/${instant.code}/token`, {}, {
+      displayName: "Admitted Chatter",
+    });
+    assert.equal(join.status, 202);
+    const admit = await api(
+      "POST",
+      `/api/meetings/${instant.code}/waiting/${join.json.waitingId}`,
+      host,
+      { action: "admit" },
+    );
+    assert.equal(admit.status, 204);
+    const poll = await api("GET", `/api/meetings/${instant.code}/waiting/${join.json.waitingId}`);
+    assert.equal(poll.json.status, "admitted");
+    assert.equal(typeof poll.json.chatToken, "string");
+    assert.equal(
+      Buffer.from(poll.json.chatToken.split(".")[0], "base64url").toString("utf8"),
+      `${instant.id}.${poll.json.identity}.Admitted Chatter`,
+    );
+    await api("PATCH", `/api/meetings/${instant.id}`, host, { waitingRoom: false });
+    ok("waiting-room admit response mints a chatToken for the admitted guest");
+  }
+  {
+    const flipped =
+      hostChat.slice(0, -1) + (hostChat.slice(-1) === "A" ? "B" : "A");
+    const r = await api("GET", `/api/meetings/${instant.code}/messages?chatToken=${encodeURIComponent(flipped)}`);
+    assert.equal(r.status, 401);
+    assert.equal(typeof r.json.error, "string");
+    ok("chatToken with a flipped signature byte is rejected with 401");
+  }
+  {
+    const payload = Buffer.from(hostChat.split(".")[0]!, "base64url").toString("utf8");
+    const swapped = payload.replace(hostIdentity, guestIdentity);
+    assert.notEqual(swapped, payload);
+    const forged = `${Buffer.from(swapped, "utf8").toString("base64url")}.${hostChat.split(".")[1]}`;
+    const r = await api("GET", `/api/meetings/${instant.code}/messages?chatToken=${encodeURIComponent(forged)}`);
+    assert.equal(r.status, 401);
+    ok("chatToken with a swapped identity (signature kept) is rejected with 401");
+  }
+  {
+    const r = await api("GET", `/api/meetings/${instant.code}/messages`);
+    assert.equal(r.status, 401);
+    const post = await api("POST", `/api/meetings/${instant.code}/messages`, {}, {
+      text: "no token here",
+    });
+    assert.equal(post.status, 400);
+    ok("message read without a chatToken is 401; write without one fails validation");
+  }
+
+  // --- v2/v4: persistent messages ---
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/messages`, {}, {
+      chatToken: guestChat,
+      text: "hello from a guest",
+      displayName: "SPOOFED",
+      identity: "user-somebody-else",
+    });
     assert.equal(r.status, 201);
-    assert.equal(r.json.message.identity, "guest");
+    assert.equal(r.json.message.identity, guestIdentity);
     assert.equal(r.json.message.displayName, "Visitor");
     assert.equal(r.json.message.text, "hello from a guest");
     assert.equal(r.json.message.meetingId, instant.id);
+    assert.equal(r.json.message.toIdentity, null);
+    assert.deepEqual(r.json.message.mentions, []);
     assert.ok(r.json.message.id && r.json.message.ts);
-    ok("guest message POST needs no session, identity guest");
-  }
-  {
-    const r = await api("POST", `/api/meetings/${instant.code}/messages`, host, {
-      text: "hello from the host",
-      displayName: "Remi",
-    });
-    assert.equal(r.status, 201);
-    assert.equal(r.json.message.identity, `user-${instant.hostUserId}`);
-    ok("member message POST records identity user-<id>");
+    ok("guest message POST needs no session; identity/displayName come from the chatToken");
   }
   {
     const r = await api("POST", `/api/meetings/${instant.code}/messages`, {}, {
+      chatToken: hostChat,
+      text: "hello from the host",
+      mentions: [guestIdentity, "*"],
+    });
+    assert.equal(r.status, 201);
+    assert.equal(r.json.message.identity, `user-${instant.hostUserId}`);
+    assert.deepEqual(r.json.message.mentions, [guestIdentity, "*"]);
+    ok("member message POST records identity user-<id> and keeps mentions");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/messages`, {}, {
+      chatToken: guestChat,
       text: "x".repeat(2001),
-      displayName: "Spammy",
     });
     assert.equal(r.status, 400);
     assert.equal(typeof r.json.error, "string");
@@ -505,14 +603,26 @@ try {
   }
   {
     const r = await api("POST", `/api/meetings/${instant.code}/messages`, {}, {
+      chatToken: guestChat,
       text: "x".repeat(2000),
-      displayName: "Chatty",
     });
     assert.equal(r.status, 201);
     ok("message of exactly 2000 chars is accepted");
   }
   {
-    const r = await api("GET", `/api/meetings/${instant.code}/messages`);
+    const r = await api("POST", `/api/meetings/${instant.code}/messages`, {}, {
+      chatToken: guestChat,
+      text: "too many mentions",
+      mentions: Array.from({ length: 51 }, (_, i) => `user-${i}`),
+    });
+    assert.equal(r.status, 400);
+    ok("more than 50 mentions is rejected by schema with 400");
+  }
+  {
+    const r = await api(
+      "GET",
+      `/api/meetings/${instant.code}/messages?chatToken=${encodeURIComponent(guestChat)}`,
+    );
     assert.equal(r.status, 200);
     assert.equal(r.json.messages.length, 3);
     assert.equal(r.json.messages[0].text, "hello from a guest");
@@ -523,6 +633,305 @@ try {
     const r = await api("GET", "/api/meetings/zzz-zzzz-zzz/messages");
     assert.equal(r.status, 404);
     ok("messages for unknown meeting code return 404");
+  }
+
+  // --- v4: private messages ---
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/messages`, {}, {
+      chatToken: hostChat,
+      text: "psst, just for you",
+      toIdentity: guestIdentity,
+    });
+    assert.equal(r.status, 201);
+    assert.equal(r.json.message.toIdentity, guestIdentity);
+    ok("DM POST stores toIdentity");
+  }
+  {
+    const recipient = await api(
+      "GET",
+      `/api/meetings/${instant.code}/messages?chatToken=${encodeURIComponent(guestChat)}`,
+    );
+    assert.equal(recipient.status, 200);
+    assert.ok(
+      recipient.json.messages.some((m: any) => m.text === "psst, just for you"),
+      "the recipient must see the DM",
+    );
+    const sender = await api(
+      "GET",
+      `/api/meetings/${instant.code}/messages?chatToken=${encodeURIComponent(hostChat)}`,
+    );
+    assert.ok(
+      sender.json.messages.some((m: any) => m.text === "psst, just for you"),
+      "the sender must see their own DM",
+    );
+    ok("a DM is visible to its sender and its recipient");
+  }
+  {
+    const third = await api(
+      "GET",
+      `/api/meetings/${instant.code}/messages?chatToken=${encodeURIComponent(thirdChat)}`,
+    );
+    assert.equal(third.status, 200);
+    assert.ok(
+      !third.json.messages.some((m: any) => m.text === "psst, just for you"),
+      "a third party must NOT see someone else's DM",
+    );
+    assert.ok(
+      third.json.messages.some((m: any) => m.text === "hello from a guest"),
+      "a third party still sees public messages",
+    );
+    ok("a DM is invisible to a third party's GET");
+  }
+  {
+    const other = await api("POST", "/api/meetings", host, { title: "Other" });
+    assert.equal(other.status, 201);
+    const r = await api(
+      "GET",
+      `/api/meetings/${other.json.meeting.code}/messages?chatToken=${encodeURIComponent(hostChat)}`,
+    );
+    assert.equal(r.status, 401);
+    const post = await api("POST", `/api/meetings/${other.json.meeting.code}/messages`, {}, {
+      chatToken: hostChat,
+      text: "wrong room",
+    });
+    assert.equal(post.status, 401);
+    await api("DELETE", `/api/meetings/${other.json.meeting.id}`, host);
+    ok("a chatToken minted for one meeting cannot read or write another meeting");
+  }
+
+  // --- v4: host permissions enforced in the minted JWT ---
+  {
+    const r = await api("GET", `/api/meetings/${instant.code}`);
+    assert.equal(r.json.meeting.allowShare, true);
+    assert.equal(r.json.meeting.allowChat, true);
+    assert.equal(r.json.meeting.allowUnmute, true);
+    ok("meeting JSON exposes allowShare/allowChat/allowUnmute, all true by default");
+  }
+  {
+    const guest = await api("POST", `/api/meetings/${instant.code}/token`, {}, {
+      displayName: "Default Guest",
+    });
+    const payload = decodeJwtPayload(guest.json.token);
+    assert.equal(payload.video.canPublishSources, undefined);
+    assert.equal(payload.video.canPublishData, true);
+    ok("with everything allowed a guest token is unrestricted (no canPublishSources)");
+  }
+  {
+    const r = await api("PATCH", `/api/meetings/${instant.id}`, member, { allowShare: false });
+    assert.equal(r.status, 403);
+    ok("PATCH of a permission by a non-host returns 403");
+  }
+  {
+    const r = await api("PATCH", `/api/meetings/${instant.id}`, host, { allowShare: false });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.meeting.allowShare, false);
+    assert.ok(r.json.liveUpdate, "permission PATCH reports the live update attempt");
+    assert.equal(typeof r.json.liveUpdate.error, "string");
+    assert.equal(r.json.liveUpdate.applied, 0);
+    ok("allowShare=false PATCH degrades gracefully when LiveKit is unreachable");
+  }
+  {
+    const guest = await api("POST", `/api/meetings/${instant.code}/token`, {}, {
+      displayName: "Restricted Guest",
+    });
+    const payload = decodeJwtPayload(guest.json.token);
+    assert.deepEqual(payload.video.canPublishSources, ["camera", "microphone"]);
+    assert.equal(payload.video.canPublishData, true);
+    ok("allowShare=false: guest JWT grants canPublishSources [camera, microphone] only");
+  }
+  {
+    const h = await api("POST", `/api/meetings/${instant.code}/token`, host, {
+      displayName: "Remi",
+    });
+    const payload = decodeJwtPayload(h.json.token);
+    assert.equal(payload.video.canPublishSources, undefined);
+    assert.equal(payload.video.roomAdmin, true);
+    ok("allowShare=false does not restrict the host's own token");
+  }
+  {
+    const r = await api("PATCH", `/api/meetings/${instant.id}`, host, { allowChat: false });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.meeting.allowChat, false);
+    const guest = await api("POST", `/api/meetings/${instant.code}/token`, {}, {
+      displayName: "Muzzled Guest",
+    });
+    const payload = decodeJwtPayload(guest.json.token);
+    assert.equal(payload.video.canPublishData, false);
+    const h = await api("POST", `/api/meetings/${instant.code}/token`, host, {
+      displayName: "Remi",
+    });
+    assert.equal(decodeJwtPayload(h.json.token).video.canPublishData, true);
+    ok("allowChat=false: guest JWT has canPublishData false, host keeps it true");
+  }
+  {
+    const r = await api("PATCH", `/api/meetings/${instant.id}`, host, { allowUnmute: false });
+    assert.equal(r.status, 200);
+    const guest = await api("POST", `/api/meetings/${instant.code}/token`, {}, {
+      displayName: "Silent Guest",
+    });
+    const sources = decodeJwtPayload(guest.json.token).video.canPublishSources;
+    assert.ok(!sources.includes("microphone"), "allowUnmute=false must drop the mic source");
+    assert.ok(sources.includes("camera"));
+    ok("allowUnmute=false: guest JWT cannot publish the microphone source");
+  }
+  {
+    const r = await api("PATCH", `/api/meetings/${instant.id}`, host, {
+      allowShare: true,
+      allowChat: true,
+      allowUnmute: true,
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.meeting.allowShare, true);
+    const guest = await api("POST", `/api/meetings/${instant.code}/token`, {}, {
+      displayName: "Freed Guest",
+    });
+    const payload = decodeJwtPayload(guest.json.token);
+    assert.equal(payload.video.canPublishSources, undefined);
+    assert.equal(payload.video.canPublishData, true);
+    ok("restoring the permissions un-restricts newly minted guest tokens");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/moderate`, member, {
+      action: "deny-share",
+      identity: guestIdentity,
+    });
+    assert.equal(r.status, 403);
+    ok("per-person deny-share by a non-host returns 403");
+  }
+  for (const action of ["deny-share", "allow-share"] as const) {
+    const r = await api("POST", `/api/meetings/${instant.code}/moderate`, host, {
+      action,
+      identity: guestIdentity,
+    });
+    assert.ok(r.status === 502 || r.status === 204, `expected 502 or 204, got ${r.status}`);
+    if (r.status === 502) assert.equal(typeof r.json.error, "string");
+    ok(`moderation "${action}" degrades gracefully (${r.status}) when LiveKit is unreachable`);
+  }
+
+  // --- v4: breakout rooms ---
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/breakouts`, {}, {
+      rooms: [{ name: "Room A", identities: [] }],
+    });
+    assert.equal(r.status, 401);
+    ok("breakout create without session returns 401");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/breakouts`, member, {
+      rooms: [{ name: "Room A", identities: [] }],
+    });
+    assert.equal(r.status, 403);
+    ok("breakout create by a non-host member returns 403");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/breakouts`, host, { rooms: [] });
+    assert.equal(r.status, 400);
+    ok("breakout create with an empty rooms array returns 400");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/breakouts`, host, {
+      rooms: [
+        { name: "Room A", identities: [guestIdentity] },
+        { name: "Room B", identities: [hostIdentity] },
+      ],
+    });
+    assert.equal(r.status, 201);
+    assert.equal(r.json.breakouts.length, 2);
+    assert.equal(r.json.breakouts[0].idx, 0);
+    assert.equal(r.json.breakouts[0].name, "Room A");
+    assert.equal(r.json.breakouts[1].idx, 1);
+    assert.deepEqual(
+      r.json.breakouts[0].participants.map((p: any) => p.identity),
+      [guestIdentity],
+    );
+    assert.ok(r.json.breakouts[0].id);
+    ok("host breakout create returns 201 with idx-ordered rooms and their participants");
+  }
+  {
+    const r = await api("GET", `/api/meetings/${instant.code}/breakouts`);
+    assert.equal(r.status, 200);
+    assert.equal(r.json.open, true);
+    assert.equal(r.json.breakouts.length, 2);
+    assert.equal(r.json.breakouts[1].participants[0].identity, hostIdentity);
+    ok("breakout list reports open: true with both rooms");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/breakouts/token`, {}, {
+      chatToken: guestChat,
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.room, `${instant.code}__b0`);
+    assert.equal(r.json.breakoutName, "Room A");
+    assert.equal(r.json.url, env.LIVEKIT_URL);
+    const payload = decodeJwtPayload(r.json.token);
+    assert.equal(payload.video.room, `${instant.code}__b0`);
+    assert.equal(payload.video.roomJoin, true);
+    assert.ok(!payload.video.roomAdmin, "an assigned guest must not get roomAdmin in a breakout");
+    ok("assigned guest gets a breakout token for its own room only");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/breakouts/token`, {}, {
+      chatToken: guestChat,
+      idx: 1,
+    });
+    assert.equal(r.status, 404);
+    ok("a non-host asking for a breakout it is not assigned to returns 404");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/breakouts/token`, {}, {
+      chatToken: thirdChat,
+    });
+    assert.equal(r.status, 404);
+    assert.equal(typeof r.json.error, "string");
+    ok("an unassigned participant gets 404 from the breakout token endpoint");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/breakouts/token`, {}, {
+      chatToken: hostChat,
+      idx: 0,
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.room, `${instant.code}__b0`);
+    assert.equal(decodeJwtPayload(r.json.token).video.roomAdmin, true);
+    ok("the host may request a token for any breakout idx");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/breakouts/token`, {}, {
+      chatToken: "not-a-real-token",
+    });
+    assert.equal(r.status, 401);
+    ok("breakout token with an invalid chatToken returns 401");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/breakouts`, host, {
+      rooms: [{ name: "Solo", identities: [guestIdentity] }],
+    });
+    assert.equal(r.status, 201);
+    assert.equal(r.json.breakouts.length, 1);
+    const list = await api("GET", `/api/meetings/${instant.code}/breakouts`);
+    assert.equal(list.json.breakouts.length, 1);
+    assert.equal(list.json.breakouts[0].name, "Solo");
+    ok("creating a new set replaces the previous open breakouts");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/breakouts/close`, member);
+    assert.equal(r.status, 403);
+    ok("breakout close by a non-host member returns 403");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/breakouts/close`, host);
+    assert.equal(r.status, 204);
+    const list = await api("GET", `/api/meetings/${instant.code}/breakouts`);
+    assert.equal(list.json.open, false);
+    assert.deepEqual(list.json.breakouts, []);
+    ok("host breakout close returns 204 and the list reports open: false");
+  }
+  {
+    const r = await api("POST", `/api/meetings/${instant.code}/breakouts/token`, {}, {
+      chatToken: guestChat,
+    });
+    assert.equal(r.status, 404);
+    ok("after close a stale client cannot mint a breakout token (404)");
   }
 
   // --- v2: recordings (EGRESS_ENABLED=false) ---

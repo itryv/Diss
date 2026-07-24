@@ -46,8 +46,8 @@ test.describe('core meeting flow: host + guest', () => {
     // --- Chat: A sends, B receives (data topic "chat") -----------------
     const message = `hello from the host ${Date.now()}`;
     await openChatPanel(pageA);
-    await pageA.getByPlaceholder('Message everyone…').fill(message);
-    await pageA.getByPlaceholder('Message everyone…').press('Enter');
+    await pageA.getByPlaceholder(/message everyone/i).fill(message);
+    await pageA.getByPlaceholder(/message everyone/i).press('Enter');
     // Sender sees their own message (it can render in both the chat list and
     // a toast, hence .first()).
     await expect(pageA.getByText(message).first()).toBeVisible();

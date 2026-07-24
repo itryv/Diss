@@ -38,7 +38,7 @@ test.describe('waiting room (contract v2)', () => {
     // Contract: 202 {waitingId, status: "waiting"} — no token yet, so the
     // guest must be on the waiting screen, not in the meeting.
     await expect(pageB.getByText('The host will let you in soon', { exact: false })).toBeVisible({ timeout: 15_000 });
-    await expect(pageB.getByPlaceholder('Message everyone…')).toHaveCount(0);
+    await expect(pageB.getByPlaceholder(/message everyone/i)).toHaveCount(0);
 
     // --- Host admits the guest from the People panel ---------------------
     await openPeoplePanel(pageA);

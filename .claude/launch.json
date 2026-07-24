@@ -4,8 +4,9 @@
     {
       "name": "diss-app",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "/Users/remilekun/Diss/app"],
-      "port": 5173
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173,
+      "cwd": "/Users/remilekun/Diss/app"
     }
   ]
 }

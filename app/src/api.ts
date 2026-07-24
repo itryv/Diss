@@ -14,6 +14,10 @@ export interface Meeting {
   // Contract v2
   waitingRoom?: boolean;
   locked?: boolean;
+  // Contract v4 — room-wide host controls (default true on the server)
+  allowShare?: boolean;
+  allowChat?: boolean;
+  allowUnmute?: boolean;
 }
 
 export interface TokenResponse {
@@ -21,6 +25,13 @@ export interface TokenResponse {
   url: string;
   identity: string;
   isHost: boolean;
+  /**
+   * Contract v4 §0 — proof of "I am this identity in this meeting". Required by
+   * every message read/write; the server derives identity from it, so a client
+   * can never read or post as anyone else. Optional in the type only so an
+   * older server (v2) still connects.
+   */
+  chatToken?: string;
 }
 
 /** 202 from the token endpoint when the meeting has a waiting room. */
@@ -33,7 +44,10 @@ export type WaitingStatus =
 
 export interface WaitingGuest { waitingId: string; displayName: string; requestedAt: string; }
 
-export type ModerateAction = 'mute' | 'remove' | 'promote' | 'demote';
+export type ModerateAction =
+  | 'mute' | 'remove' | 'promote' | 'demote'
+  // Contract v4 §2 — per-person screen-share override (host/co-host only)
+  | 'allow-share' | 'deny-share';
 
 export interface PersistedMessage {
   id: number | string;
@@ -42,6 +56,39 @@ export interface PersistedMessage {
   displayName: string;
   text: string;
   ts: string | number;
+  /** Contract v4 — null/absent = everyone; otherwise a private message to that identity. */
+  toIdentity?: string | null;
+  /** Identities mentioned; `"*"` means @all. */
+  mentions?: string[];
+}
+
+/** Body of `POST /messages` (contract v4 §1) — identity comes from the chatToken. */
+export interface OutgoingMessage {
+  chatToken: string;
+  text: string;
+  toIdentity?: string;
+  mentions?: string[];
+}
+
+// ── Breakout rooms (contract v4 §3) ──────────────────────────────────────────
+
+export interface BreakoutMember { identity: string; displayName: string; }
+
+export interface Breakout {
+  id: number | string;
+  /** Position in the open set. The LiveKit room is `<code>__b<idx>`. */
+  idx: number;
+  name: string;
+  participants: BreakoutMember[];
+}
+
+/** `POST /breakouts/token` — a LiveKit token for ONE breakout room. */
+export interface BreakoutToken {
+  token: string;
+  url: string;
+  /** `<code>__b<idx>` */
+  room: string;
+  breakoutName: string;
 }
 
 export interface Recording {
@@ -107,7 +154,10 @@ export const api = {
   deleteMeeting: (id: number | string) =>
     req<void>(`/meetings/${encodeURIComponent(String(id))}`, { method: 'DELETE' }),
 
-  patchMeeting: (id: number | string, body: { title?: string; startsAt?: string; waitingRoom?: boolean; locked?: boolean }) =>
+  patchMeeting: (id: number | string, body: {
+    title?: string; startsAt?: string; waitingRoom?: boolean; locked?: boolean;
+    allowShare?: boolean; allowChat?: boolean; allowUnmute?: boolean;
+  }) =>
     req<{ meeting: Meeting }>(`/meetings/${encodeURIComponent(String(id))}`, { method: 'PATCH', json: body }),
 
   // Joining / LiveKit — 200 with a token, or 202 {waitingId} when the waiting room is on
@@ -126,11 +176,29 @@ export const api = {
   moderate: (code: string, action: ModerateAction, identity: string) =>
     req<void>(`/meetings/${encodeURIComponent(code)}/moderate`, { method: 'POST', json: { action, identity } }),
 
-  // Persistent chat
-  listMessages: (code: string) =>
-    req<{ messages: PersistedMessage[] }>(`/meetings/${encodeURIComponent(code)}/messages`),
-  postMessage: (code: string, text: string, displayName: string) =>
-    req<{ message: PersistedMessage }>(`/meetings/${encodeURIComponent(code)}/messages`, { method: 'POST', json: { text, displayName } }),
+  // Persistent chat (contract v4 — chatToken required, 401 without it).
+  // GET returns only what the caller may see: public messages + their own DMs.
+  listMessages: (code: string, chatToken: string) =>
+    req<{ messages: PersistedMessage[] }>(
+      `/meetings/${encodeURIComponent(code)}/messages?chatToken=${encodeURIComponent(chatToken)}`),
+  postMessage: (code: string, body: OutgoingMessage) =>
+    req<{ message: PersistedMessage }>(`/meetings/${encodeURIComponent(code)}/messages`, { method: 'POST', json: body }),
+
+  // Breakout rooms (contract v4 §3). Create/close are host or co-host only;
+  // the token endpoint is chatToken-authenticated and server-authoritative —
+  // a client can never mint a token for a room it isn't assigned to.
+  createBreakouts: (code: string, rooms: { name: string; identities: string[] }[]) =>
+    req<{ breakouts: Breakout[] }>(`/meetings/${encodeURIComponent(code)}/breakouts`, { method: 'POST', json: { rooms } }),
+  listBreakouts: (code: string) =>
+    req<{ breakouts: Breakout[]; open: boolean }>(`/meetings/${encodeURIComponent(code)}/breakouts`),
+  /** `idx` is host-only: visit any room. Everyone else gets their own, or a 404. */
+  breakoutToken: (code: string, chatToken: string, idx?: number) =>
+    req<BreakoutToken>(`/meetings/${encodeURIComponent(code)}/breakouts/token`, {
+      method: 'POST',
+      json: { chatToken, ...(idx !== undefined ? { idx } : {}) },
+    }),
+  closeBreakouts: (code: string) =>
+    req<void>(`/meetings/${encodeURIComponent(code)}/breakouts/close`, { method: 'POST' }),
 
   // Recording
   recording: (code: string, action: 'start' | 'stop') =>
