@@ -686,10 +686,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     const joinMeeting = async () => {
-      const st = ref.current;
+      let st = ref.current;
       const meeting = st.meeting;
       if (!meeting) { toast('Pick a meeting to join first'); return; }
-      const displayName = st.lobbyName.trim() || st.user?.name || '';
+      let displayName = st.lobbyName.trim() || st.user?.name || '';
+      if (!displayName && !st.bootChecked) {
+        // The session restore (GET /api/auth/me) can still be in flight: a
+        // signed-in member who opens a join link directly lands in the lobby
+        // with an empty name box until it resolves. Locally that race is
+        // invisible (the request takes milliseconds), but over real network
+        // latency a quick click would tell them to type a name they have
+        // already given us. Wait for the session instead.
+        const until = Date.now() + 3000;
+        while (!ref.current.bootChecked && Date.now() < until) {
+          await new Promise(r => setTimeout(r, 50));
+        }
+        st = ref.current;
+        displayName = st.lobbyName.trim() || st.user?.name || '';
+      }
       if (!displayName) { patch({ joinError: 'Enter your name so people know who joined.' }); return; }
       if (st.joining) return;
       patch({ joining: true, joinError: null });

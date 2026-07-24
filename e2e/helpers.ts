@@ -74,17 +74,25 @@ export async function patchMeeting(
  * filled only when present.
  */
 export async function joinFromLobby(page: Page, displayName?: string): Promise<void> {
-  const nameInput = page.getByPlaceholder('How should we introduce you?');
-  if (displayName && (await nameInput.count()) > 0) {
+  // Wait for the lobby to render before inspecting it: count() does NOT
+  // auto-wait, so against a remote deployment (slower than a local dev
+  // server) it can report 0 before the app has painted, silently skipping
+  // the name and failing the join with "Enter your name".
+  const joinButton = page.getByRole('button', { name: 'Join now' });
+  await joinButton.waitFor({ state: 'visible', timeout: 30_000 });
+  if (displayName) {
+    const nameInput = page.getByPlaceholder('How should we introduce you?');
+    await nameInput.waitFor({ state: 'visible', timeout: 15_000 });
     await nameInput.fill(displayName);
   }
-  await page.getByRole('button', { name: 'Join now' }).click();
+  await joinButton.click();
 }
 
 /** Assert the in-meeting toolbar is present (i.e. we actually joined). */
 export async function expectInMeeting(page: Page): Promise<void> {
+  // Generous: a real join over the internet is DNS + TLS + token + ICE.
   await expect(page.getByRole('button', { name: 'Leave' })).toBeVisible({
-    timeout: 20_000,
+    timeout: 45_000,
   });
 }
 

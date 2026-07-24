@@ -47,20 +47,26 @@ test.describe('recording (egress)', () => {
     await page.getByText('Stop recording').click();
     await expect(page.getByText('REC', { exact: true })).toHaveCount(0, { timeout: 15_000 });
 
-    // Egress finalizes the file asynchronously; poll the recordings dir.
-    const deadline = Date.now() + 45_000;
+    // Egress finalizes the file asynchronously, and the mp4 is still growing
+    // while it does — polling for "size > 0" catches it mid-write and reads a
+    // few KB, so wait for it to actually reach composite size.
+    const MIN_BYTES = 200_000; // a ~15s composite is megabytes; an empty stub is KBs
+    const deadline = Date.now() + 60_000;
     let file: string | undefined;
     while (Date.now() < deadline && !file) {
       if (fs.existsSync(RECORDINGS_DIR)) {
         file = fs
           .readdirSync(RECORDINGS_DIR)
-          .find((f) => f.startsWith(meeting.code) && f.endsWith('.mp4') && fs.statSync(path.join(RECORDINGS_DIR, f)).size > 0);
+          .find(
+            (f) =>
+              f.startsWith(meeting.code) &&
+              f.endsWith('.mp4') &&
+              fs.statSync(path.join(RECORDINGS_DIR, f)).size > MIN_BYTES,
+          );
       }
       if (!file) await page.waitForTimeout(1000);
     }
-    expect(file, `expected an mp4 for ${meeting.code} in ${RECORDINGS_DIR}`).toBeTruthy();
-    const size = fs.statSync(path.join(RECORDINGS_DIR, file!)).size;
-    expect(size, 'a real ~15s composite, not an empty stub').toBeGreaterThan(50_000);
+    expect(file, `expected a finalized mp4 for ${meeting.code} in ${RECORDINGS_DIR}`).toBeTruthy();
 
     // Recordings screen lists it.
     await page.goto('/');

@@ -49,17 +49,46 @@ services:
   livekit:
     image: livekit/livekit-server:v1.9
     restart: unless-stopped
-    command: --config /etc/livekit.yaml
     environment:
-      # LiveKit merges this with the config file; keys never live on disk.
+      # Config lives here (not a mounted file) so the domains come from .env
+      # and there is no "edit this file before deploying" step to forget.
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
-    volumes:
-      - ./livekit.yaml:/etc/livekit.yaml:ro
+      # NB: the env var is LIVEKIT_CONFIG (the --config-body flag's env var),
+      # NOT LIVEKIT_CONFIG_BODY. With the wrong name livekit starts silently
+      # on defaults: ICE range 50000-60000 instead of the 7882 mux, no TURN.
+      LIVEKIT_CONFIG: |
+        port: 7880
+        bind_addresses:
+          - "0.0.0.0"
+        rtc:
+          tcp_port: 7881
+          udp_port: 7882
+          use_external_ip: true
+        redis:
+          address: redis:6379
+        turn:
+          enabled: true
+          domain: ${TURN_DOMAIN}
+          udp_port: 3478
+          # TURN allocates a relay port per session. The default range is
+          # 30000-40000, which is useless behind docker bridge networking
+          # (10k published ports is not viable), so TURN would advertise
+          # relays that never connect. Narrowed to a range we actually
+          # publish + allow in ufw: 20 concurrent relay sessions, ample here.
+          relay_range_start: 30000
+          relay_range_end: 30019
+          # TURN/TLS (5349) is intentionally OFF: it is raw TLS, not HTTP, so
+          # Caddy cannot proxy it without the layer4 module, and LiveKit
+          # terminating it itself needs a cert mounted in. TURN/UDP + ICE/TCP
+          # (7881) cover everything except networks that block UDP *and*
+          # non-443 TCP. See README "TURN TLS" to enable it later.
+        logging:
+          level: info
     ports:
-      - "7881:7881"        # WebRTC over TCP (ICE/TCP fallback)
-      - "7882:7882/udp"    # WebRTC UDP mux
-      - "3478:3478/udp"    # TURN/UDP
-      - "5349:5349"        # TURN/TLS
+      - "7881:7881"                  # WebRTC over TCP (ICE/TCP fallback)
+      - "7882:7882/udp"              # WebRTC UDP mux
+      - "3478:3478/udp"              # TURN/UDP
+      - "30000-30019:30000-30019/udp"  # TURN relay range (see config above)
     networks:
       - web        # Caddy proxies wss://<LIVEKIT_DOMAIN> -> livekit:7880
       - internal

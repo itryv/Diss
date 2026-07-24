@@ -51,24 +51,28 @@ echo "LK$(openssl rand -hex 8)"           # -> LIVEKIT_API_KEY
 openssl rand -base64 32                   # -> LIVEKIT_API_SECRET
 ```
 
-Set the three domains in `.env`, and edit `turn.domain` in `livekit.yaml` to
-match `TURN_DOMAIN`. Decide how TURN TLS is terminated (next section).
+Set the three domains in `.env`. The LiveKit config (including `turn.domain`)
+is generated from these in `docker-compose.yml` — there is no separate file to
+edit.
 
-## 3. TURN TLS
+## 3. TURN TLS (optional, off by default)
 
-Port 5349 is TURN over TLS — raw TCP, not HTTP — so the plain Caddyfile can't
-proxy it. Two options (see the comments in `livekit.yaml`):
+The stack ships with TURN/UDP on 3478 and ICE/TCP on 7881. That covers home
+wifi, mobile data, and most office networks. It does **not** cover networks
+that block UDP *and* all non-443 TCP; those clients need TURN over TLS on 5349.
 
-- **a) Proxy-terminated** (`external_tls: true`, the default here): run a TLS
-  terminator on 5349 for `turn.example.com`, e.g. Caddy built with the
-  `layer4` module (`xcaddy build --with github.com/mholt/caddy-l4`).
-- **b) LiveKit-terminated**: set `external_tls: false`, obtain a certificate
-  for the TURN domain (e.g. `certbot certonly --standalone -d turn.example.com`),
-  mount it into the livekit container, and uncomment `cert_file`/`key_file`.
+5349 is raw TLS, not HTTP, so a plain Caddyfile cannot proxy it. To enable it:
 
-If neither is set up yet the stack still works for most users — TURN/UDP on
-3478 and direct WebRTC on 7881/7882 don't need TLS — but clients on networks
-that only allow 443/5349-style TLS egress will fail to connect media.
+- **a) Proxy-terminated**: run a TLS terminator on 5349 for your TURN domain —
+  e.g. Caddy built with the layer4 module
+  (`xcaddy build --with github.com/mholt/caddy-l4`) — then add
+  `tls_port: 5349` and `external_tls: true` to the `turn:` block in
+  `docker-compose.yml`, and publish `"5349:5349"`.
+- **b) LiveKit-terminated**: obtain a cert for the TURN domain, mount it into
+  the livekit container, and add `tls_port: 5349` plus `cert_file`/`key_file`
+  (leave `external_tls` unset).
+
+Either way, add `ufw allow 5349/tcp`.
 
 ## 4. Firewall
 
@@ -78,7 +82,6 @@ With ufw (Caddy already has 80/443):
 ufw allow 7881/tcp    # WebRTC over TCP
 ufw allow 7882/udp    # WebRTC UDP mux
 ufw allow 3478/udp    # TURN/UDP
-ufw allow 5349/tcp    # TURN/TLS
 ```
 
 ## 5. Caddy

@@ -4,7 +4,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, stat, unlink } from "node:fs/promises";
+import { chmod, mkdir, stat, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   AccessToken,
@@ -768,6 +768,15 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
       if (request.body.action === "start") {
         if (active) return reply.status(409).send({ error: "already recording" });
         await mkdir(recordingsDir, { recursive: true });
+        // The egress container shares this directory as /out but runs as a
+        // non-root user (uid 1001, gid 0). A directory created by root with
+        // the default 0755 leaves it unwritable, and egress only discovers
+        // that at the very END of a recording — it composites the whole
+        // session, then dies with "permission denied" and the recording is
+        // lost. Group-writable keeps that from ever happening.
+        await chmod(recordingsDir, 0o775).catch(() => {
+          /* non-fatal: e.g. the dir is owned by another user on some hosts */
+        });
         const startedAt = new Date().toISOString();
         // The egress container writes to /out (a shared volume with RECORDINGS_DIR).
         const fileName = `${meeting.code}-${startedAt.replace(/[:.]/g, "-")}.mp4`;

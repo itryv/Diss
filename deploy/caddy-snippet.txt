@@ -31,10 +31,8 @@ livekit.example.com {
 }
 
 # --- TURN subdomain (turn.example.com) — NOTE, not proxied here --------------
-# TURN/TLS (5349/tcp) and TURN/UDP (3478/udp) are NOT HTTP and cannot go
-# through a plain Caddyfile reverse_proxy. The compose stack publishes
-# 5349/tcp + 3478/udp directly on the host, so turn.example.com just needs an
-# A/AAAA record pointing at this VPS. For TLS on 5349 either build Caddy with
-# the layer4 module and terminate there (livekit.yaml external_tls: true), or
-# give LiveKit its own certificate (livekit.yaml cert_file/key_file). See
-# deploy/README.md "TURN TLS".
+# TURN/UDP (3478/udp) is not HTTP and cannot go through a Caddyfile
+# reverse_proxy. The compose stack publishes it directly on the host, so
+# turn.example.com just needs an A/AAAA record pointing at this VPS — no Caddy
+# site block at all. TURN/TLS (5349) is off by default; see deploy/README.md
+# "TURN TLS" to enable it.
