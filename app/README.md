@@ -15,6 +15,7 @@ npm run dev   # http://localhost:5173
 - `src/tiles.ts` — derives participant tile view-models (speaking ring, mute/hand/host badges, pinning)
 - `src/screens/` — one file per screen area; `Meeting.tsx` is the in-meeting room
 - `src/icons.tsx` — the design's SVG icon set
+- `src/desktop/` — the macOS/Windows desktop-shell showcase at **`/desktop`** (see below)
 - `src/ProtoNav.tsx` — floating prototype switcher (bottom-right): jump to any screen, switch host/guest role, participant count, waiting room on/off
 
 ## What's real vs. stubbed
@@ -24,3 +25,13 @@ Real: auth (register/login/logout/session cookie via the backend, see `../docs/a
 Stubbed for v1: waiting room, recording, detailed connection stats, calendar export, OAuth sign-in, recordings/meeting-detail screens. The ProtoNav "In-meeting" jump renders the meeting screen with a clearly-named dev fallback roster (`devFallbackPeers`) without connecting.
 
 Dev servers expected: backend on `http://localhost:8787` (Vite proxies `/api`), LiveKit dev server per the contract doc.
+
+## Desktop shell — `/desktop`
+
+Implementation of the `Diss Desktop.dc.html` design (source in `../design/`), spec'd in [desktop-ui-ux-spec.md](../docs/desktop-ui-ux-spec.md). It renders the eight desktop surfaces inside a simulated OS — macOS menu bar or Windows taskbar — with a **Surfaces** switcher (bottom-right) that also toggles the platform.
+
+Surfaces: main window · menu-bar/tray panel · meeting window · mini window (PiP, 4 states) · screen-share picker + share toolbar · notification content set · Settings → Desktop · first-run & system states.
+
+Every platform difference in the design is live, not mocked twice: title bar (traffic lights vs. caption bar), panel anchoring (drops from the menu bar vs. rises from the tray), `⌘` vs. `Ctrl`, notification shape, share-audio wording, and the permission copy. The shortcut recorder captures a real chord and prints it in the platform's notation.
+
+This is a design showcase, not the shipping shell — no Electron/Tauri process, and the surfaces are static compositions rather than the live web screens.

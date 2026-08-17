@@ -5,6 +5,8 @@ import { DevicePicker } from './Lobby';
 import { api, meetingLink, recordingFileUrl } from '../api';
 import type { Meeting, Recording } from '../api';
 import { Ic } from '../icons';
+import { PermissionsPanel } from '../desktop/live/PermissionsPanel';
+import { isDesktopApp } from '../desktop/live/bridge';
 
 const inputStyle: React.CSSProperties = { width: '100%', background: '#1c1815', border: '1px solid #3a332b', borderRadius: 12, padding: '13px 14px', color: '#f4eee5', fontSize: 15, fontFamily: 'inherit', outline: 'none' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 13, fontWeight: 600, color: '#a3988a', marginBottom: 7 };
@@ -384,7 +386,13 @@ function Recordings() {
 function Settings() {
   const app = useApp();
   const s = app.s;
-  const tabs: [AppState['settingsTab'], string][] = [['profile', 'Profile'], ['av', 'Audio & Video'], ['account', 'Account']];
+  // The Desktop tab only exists in the packaged app — on the web there are no OS
+  // permissions to show.
+  const tabs: [AppState['settingsTab'], string][] = [
+    ['profile', 'Profile'], ['av', 'Audio & Video'],
+    ...(isDesktopApp() ? ([['desktop', 'Desktop']] as [AppState['settingsTab'], string][]) : []),
+    ['account', 'Account'],
+  ];
   return (
     <div style={{ maxWidth: 600, animation: 'fadeUp .35s ease' }}>
       <h1 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 28, margin: '0 0 20px' }}>Settings</h1>
@@ -426,6 +434,15 @@ function Settings() {
           <ToggleRow label="Turn my camera off when I join" on={s.joinCamOff} onToggle={() => app.toggleJoinPref('camOff')} />
           <ToggleRow label="Noise suppression" on={s.nsOn} onToggle={app.toggleNs} />
           {s.blurSupported && <ToggleRow label="Blur my background" on={s.blurOn} onToggle={app.toggleBlur} />}
+        </div>
+      )}
+      {s.settingsTab === 'desktop' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 560 }}>
+          <div>
+            <div style={{ fontSize: 14.5, fontWeight: 600, marginBottom: 3 }}>Permissions</div>
+            <div style={{ fontSize: 12.5, color: '#8a7f70', marginBottom: 12 }}>What Diss needs from your Mac, and how to fix anything that's blocked.</div>
+            <PermissionsPanel />
+          </div>
         </div>
       )}
       {s.settingsTab === 'account' && (

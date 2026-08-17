@@ -22,6 +22,9 @@ import { BackgroundProcessor, supportsBackgroundProcessors } from '@livekit/trac
 import { api, ApiError, extractCode, meetingLink } from './api';
 import type { Breakout, Meeting, ModerateAction, TokenResponse, User, WaitingGuest } from './api';
 import { applySinkId, canCaptureDisplayAudio, canSelectSpeaker, listDevices, playTestTone } from './media';
+import { preflightMedia } from './desktop/live/permissions';
+import { canCaptureNativeSystemAudio, isDesktopApp } from './desktop/live/bridge';
+import type { PermissionKind } from './desktop/live/bridge';
 import type { DeviceLists } from './media';
 import {
   breakoutIdxOf, loadTileOrder, mentionsMe, resolveMentions, saveTileOrder, spreadEvenly,
@@ -188,12 +191,14 @@ export interface AppState {
   // join code entry
   code: string; codeInvalid: boolean;
   // app shell
-  newMenuOpen: boolean; joinModal: boolean; settingsTab: 'profile' | 'av' | 'notif' | 'account';
+  newMenuOpen: boolean; joinModal: boolean; settingsTab: 'profile' | 'av' | 'notif' | 'account' | 'desktop';
   optionsOpen: boolean; schedTitle: string; schedTime: string; copied: boolean;
   clock: string; dateStr: string;
   schedOpts: boolean[]; avOpts: boolean[]; notifOpts: boolean[];
   // lobby
   permState: PermState; realCam: boolean; lobbyName: string;
+  /** macOS-only: which OS permissions are blocking us (drives the fix-it copy). */
+  deniedPermissions: PermissionKind[];
   lobbyMic: boolean; lobbyCam: boolean; speakerTesting: boolean;
   joining: boolean; joinError: string | null;
   // waiting room (guest side)
@@ -270,7 +275,7 @@ const initial: AppState = {
   newMenuOpen: false, joinModal: false, settingsTab: 'profile', optionsOpen: false,
   schedTitle: '', schedTime: '15:00', copied: false, clock: '', dateStr: '',
   schedOpts: [true, false, false, true], avOpts: [true, false, true], notifOpts: [true, true],
-  permState: 'prompt', realCam: false, lobbyName: '', lobbyMic: true, lobbyCam: true, speakerTesting: false,
+  permState: 'prompt', realCam: false, lobbyName: '', deniedPermissions: [], lobbyMic: true, lobbyCam: true, speakerTesting: false,
   joining: false, joinError: null,
   waitingId: null, waitingDenied: false,
   waitingGuests: [],
@@ -471,6 +476,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const startPreview = async (): Promise<void> => {
       stopPreview();
       const st = ref.current;
+
+      // On macOS the OS decides before the browser does. Asking first means a TCC
+      // block reports as 'denied' with a System Settings fix, instead of arriving
+      // as the same NotAllowedError a dismissed browser prompt produces.
+      const pre = await preflightMedia({ audio: true, video: st.lobbyCam });
+      if (!pre.ok) { patch({ permState: 'denied', deniedPermissions: pre.denied }); return; }
+      patch({ deniedPermissions: [] });
+
       const want = (id: string | null): MediaTrackConstraints | true =>
         id ? { deviceId: { exact: id } } : true;
       const attempts: MediaStreamConstraints[] = [
@@ -1229,7 +1242,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       let mode = requested;
-      if (mode !== 'screen' && !canCaptureDisplayAudio()) {
+
+      // The desktop app captures computer sound through the OS (ScreenCaptureKit
+      // / CoreAudio Tap on macOS and WASAPI loopback on Windows), just like Zoom.
+      // macOS 12 and older do not expose a native API for this.
+      if (mode !== 'screen' && isDesktopApp() && !canCaptureNativeSystemAudio()) {
+        toast(mode === 'audio'
+          ? 'Sharing computer sound requires macOS 13 or later'
+          : 'Sharing the picture only — computer sound requires macOS 13 or later');
+        if (mode === 'audio') return;
+        mode = 'screen';
+      }
+
+      if (mode !== 'screen' && !isDesktopApp() && !canCaptureDisplayAudio()) {
         toast(mode === 'audio'
           ? "This browser can't share computer sound — try Chrome or Edge"
           : "This browser can't capture screen audio — sharing the picture only. Try Chrome or Edge for sound.");
@@ -1251,7 +1276,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const audio = tracks.find(t => t.kind === Track.Kind.Audio);
           tracks.filter(t => t !== audio).forEach(t => { t.stop(); });
           if (!audio) {
-            toast("No computer sound was shared — tick “Share tab audio” in the picker and try again");
+            toast(isDesktopApp()
+              ? 'No computer sound was shared — turn on “Share audio” in the picker and try again'
+              : 'No computer sound was shared — turn on “Share tab audio” in the picker and try again');
             return;
           }
           await lp.publishTrack(audio, { source: Track.Source.ScreenShareAudio });
@@ -1270,7 +1297,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         patch({ sharing: true, shareHasAudio: gotAudio, shareAudioOnly: false });
         sync();
         if (mode === 'screen-audio' && !gotAudio) {
-          toast("You're sharing — but no sound came through. Tick “Share tab audio” in the picker to include it.");
+          toast(isDesktopApp()
+            ? 'You’re sharing — but no sound came through. Turn on “Share audio” in the picker to include it.'
+            : 'You’re sharing — but no sound came through. Turn on “Share tab audio” in the picker to include it.');
         } else {
           toast(gotAudio
             ? 'You started sharing — everyone sees your screen and hears its sound'

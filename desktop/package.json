@@ -1,0 +1,80 @@
+{
+  "name": "diss-desktop",
+  "productName": "Diss",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Diss \u2014 video meetings for macOS and Windows",
+  "author": "Diss",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "DISS_DEV_URL=http://localhost:5173 electron .",
+    "selftest": "DISS_SELFTEST=1 DISS_DEV_URL=http://localhost:5173 electron .",
+    "icon": "node scripts/make-icon.js",
+    "prepack:renderer": "npm --prefix ../app run build -- --base=./ && rm -rf renderer && cp -R ../app/dist renderer",
+    "pack": "npm run icon && npm run prepack:renderer && electron-builder --dir",
+    "dist:mac": "npm run icon && npm run prepack:renderer && electron-builder --mac",
+    "dist:win": "npm run icon && npm run prepack:renderer && electron-builder --win"
+  },
+  "build": {
+    "appId": "app.diss.desktop",
+    "productName": "Diss",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "protocols": [
+      {
+        "name": "Diss",
+        "schemes": [
+          "diss"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.business",
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "extendInfo": {
+        "NSCameraUsageDescription": "Diss needs your camera so people in the meeting can see you.",
+        "NSMicrophoneUsageDescription": "Diss needs your microphone so people in the meeting can hear you.",
+        "NSAudioCaptureUsageDescription": "Diss needs access to system audio when you choose to share computer sound in a meeting."
+      },
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3"
+  }
+}

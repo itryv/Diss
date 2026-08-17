@@ -4,3 +4,9 @@ dist/
 *.local
 .env
 test-results/
+desktop/node_modules/
+desktop/dist/
+desktop/renderer/
+desktop/build/icon.png
+desktop/selftest-out/
+deploy/downloads/

@@ -113,6 +113,28 @@ curl -s https://livekit.example.com                  # LiveKit responds ("OK")
 Then open `https://meet.example.com`, register, start an instant meeting, and
 join from a second browser/phone on mobile data (that path exercises TURN).
 
+## Desktop releases
+
+Native installers are intentionally kept out of Git. The app container mounts
+`deploy/downloads/` read-only and serves versioned files at `/downloads/`.
+
+Build and publish the current macOS release from a Mac:
+
+```bash
+cd desktop
+npm ci
+npm run dist:mac
+mkdir -p ../deploy/downloads
+cp dist/Diss-1.0.0.dmg ../deploy/downloads/
+cp dist/Diss-1.0.0-arm64.dmg ../deploy/downloads/
+rsync -az ../deploy/downloads/ <host>:<repo>/deploy/downloads/
+docker compose up -d --force-recreate diss-app
+```
+
+The current preview is unsigned. Before presenting it as a stable release,
+configure a Developer ID Application certificate and Apple notarization for
+electron-builder, rebuild, and replace both files under the same versioned names.
+
 ## Upgrades
 
 ```bash

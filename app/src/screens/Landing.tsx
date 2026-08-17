@@ -1,5 +1,9 @@
 import { useApp } from '../store';
 
+const DESKTOP_VERSION = '1.0.0';
+const MAC_ARM_DOWNLOAD = `/downloads/Diss-${DESKTOP_VERSION}-arm64.dmg`;
+const MAC_INTEL_DOWNLOAD = `/downloads/Diss-${DESKTOP_VERSION}.dmg`;
+
 export function Landing() {
   const app = useApp();
   const s = app.s;
@@ -12,6 +16,7 @@ export function Landing() {
           diss<span style={{ color: '#f08b5f', fontSize: 30, lineHeight: 0.6 }}>.</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <a className="hv-fg" href="#desktop-app" style={{ color: '#c9beb0', fontSize: 15, fontWeight: 500, textDecoration: 'none', padding: '10px 14px' }}>Desktop app</a>
           <button className="hv-fg" onClick={() => app.go('auth', { authMode: 'signin', authError: null })} style={{ background: 'none', border: 'none', color: '#c9beb0', fontSize: 15, fontWeight: 500, cursor: 'pointer', padding: '10px 14px' }}>Sign in</button>
           <button className="hv-primary" onClick={() => app.go('auth', { authMode: 'signup', authError: null })} style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 12, padding: '11px 20px', fontWeight: 600, fontSize: 15, cursor: 'pointer' }}>Sign up free</button>
         </div>
@@ -31,6 +36,19 @@ export function Landing() {
             We couldn't find that meeting — check the code and try again. Codes look like <span style={{ fontWeight: 600 }}>abc-defg-hij</span>.
           </div>
         )}
+        <div id="desktop-app" style={{ marginTop: 64, width: 'min(680px, 100%)', border: '1px solid #362f28', borderRadius: 20, padding: '24px', background: 'linear-gradient(135deg, rgba(240,139,95,.09), rgba(30,26,22,.8))' }}>
+          <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 750, fontSize: 23, marginBottom: 7 }}>Diss for Mac</div>
+          <div style={{ color: '#a3988a', fontSize: 14.5, lineHeight: 1.55, maxWidth: 540, margin: '0 auto 18px' }}>
+            Native screen and computer-audio sharing, global mute shortcuts, a menu-bar panel, and a floating meeting window. Requires macOS 13 or later.
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <a href={MAC_ARM_DOWNLOAD} download style={{ background: '#f08b5f', color: '#241209', borderRadius: 11, padding: '11px 18px', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>Download for Apple Silicon</a>
+            <a href={MAC_INTEL_DOWNLOAD} download style={{ background: '#241f1a', border: '1px solid #4a4036', color: '#f4eee5', borderRadius: 11, padding: '11px 18px', fontWeight: 650, fontSize: 14, textDecoration: 'none' }}>Download for Intel</a>
+          </div>
+          <div style={{ color: '#756b60', fontSize: 11.5, lineHeight: 1.45, marginTop: 14 }}>
+            Preview release v{DESKTOP_VERSION}. It is not yet Apple-notarized, so macOS may ask you to confirm the first launch in Privacy &amp; Security.
+          </div>
+        </div>
         <div style={{ marginTop: 90, display: 'flex', gap: 56, flexWrap: 'wrap', justifyContent: 'center' }}>
           {[
             ['10 seconds to join', 'Guests never see a signup wall. Ever.'],

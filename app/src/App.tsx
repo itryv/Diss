@@ -6,8 +6,14 @@ import { Lobby, Waiting } from './screens/Lobby';
 import { Meeting } from './screens/Meeting';
 import { Post } from './screens/Post';
 import { ProtoNav } from './ProtoNav';
+import { DesktopShell } from './desktop/DesktopShell';
+import { MiniApp } from './desktop/live/MiniApp';
+import { TrayApp } from './desktop/live/TrayApp';
+import { PickerApp } from './desktop/live/PickerApp';
+import { PermissionsApp } from './desktop/live/PermissionsApp';
+import { DesktopBridge } from './desktop/live/DesktopBridge';
 
-const APP_SCREENS = ['dash', 'schedule', 'schedDone', 'settings', 'recordings', 'detail'];
+const APP_SCREENS =['dash', 'schedule', 'schedDone', 'settings', 'recordings', 'detail'];
 
 function Screens() {
   const { s } = useApp();
@@ -35,11 +41,26 @@ function Screens() {
       )}
       {/* Dev-only screen switcher — never ships to production users. */}
       {import.meta.env.DEV && <ProtoNav />}
+      <DesktopBridge />
     </div>
   );
 }
 
 export default function App() {
+  const hash = typeof window !== 'undefined' ? window.location.hash.replace(/^#\/?/, '') : '';
+
+  // Satellite Electron windows render one component and nothing else — they have
+  // no session and no LiveKit connection, only the IPC bridge.
+  if (hash === 'mini') return <MiniApp />;
+  if (hash === 'tray') return <TrayApp />;
+  if (hash === 'picker') return <PickerApp />;
+  if (hash === 'permissions') return <PermissionsApp />;
+
+  // The static desktop-design showcase (browser only): no web app chrome, no auth.
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/desktop')) {
+    return <DesktopShell />;
+  }
+
   return (
     <AppProvider>
       <Screens />

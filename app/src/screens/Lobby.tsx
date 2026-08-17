@@ -4,6 +4,7 @@ import type { DeviceKind } from '../store';
 import { createLevelMeter } from '../media';
 import { Ic } from '../icons';
 import { initialsOf } from '../util';
+import { openPermissionSettings, PERMISSION_LABEL } from '../desktop/live/permissions';
 
 const centered: React.CSSProperties = { position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, textAlign: 'center', padding: 32 };
 const primaryBtn: React.CSSProperties = { background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 12, padding: '13px 26px', fontWeight: 700, fontSize: 15, cursor: 'pointer' };
@@ -134,6 +135,10 @@ export function Lobby() {
   const s = app.s;
   const videoRef = useRef<HTMLVideoElement>(null);
   const initials = initialsOf(s.lobbyName);
+  // macOS TCC denial reads differently from a browser prompt denial: there is no
+  // in-app retry, only System Settings.
+  const osBlocked = s.deniedPermissions.length > 0;
+  const blockedLabel = s.deniedPermissions.map(k => PERMISSION_LABEL[k]).join(' and ') || 'the camera';
   const meeting = s.meeting;
   const isHost = !!(s.user && meeting && String(meeting.hostUserId) === String(s.user.id));
 
@@ -166,10 +171,24 @@ export function Lobby() {
           {s.permState === 'denied' && (
             <div style={centered}>
               <div style={{ display: 'flex' }}><Ic name="lock" size={34} /></div>
-              <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 20 }}>Your browser blocked the camera and mic</div>
-              <div style={{ color: '#a3988a', fontSize: 14, maxWidth: 400, lineHeight: 1.6 }}>
-                Click the <span style={{ background: '#2a241e', borderRadius: 6, padding: '2px 8px', fontWeight: 600, color: '#f4eee5' }}><Ic name="videoOff" size={15} style={{ verticalAlign: -2 }} /></span> icon in the address bar, choose <span style={{ color: '#f4eee5', fontWeight: 600 }}>Allow</span>, then reload. No luck? You can still join to watch and listen.
+              <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 20 }}>
+                {osBlocked ? `macOS is blocking ${blockedLabel}` : 'Your browser blocked the camera and mic'}
               </div>
+              {osBlocked ? (
+                <>
+                  <div style={{ color: '#a3988a', fontSize: 14, maxWidth: 420, lineHeight: 1.6 }}>
+                    Open Privacy &amp; Security, switch {blockedLabel} on for Diss, and come back — we'll pick up where you left off.
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                    <button className="hv-primary" onClick={() => openPermissionSettings(s.deniedPermissions[0] ?? 'camera')} style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 12, padding: '12px 22px', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Open Privacy &amp; Security</button>
+                    <button className="hv-bg-2a" onClick={() => app.allowAccess()} style={{ background: '#241f1a', border: '1px solid #362f28', color: '#f4eee5', borderRadius: 12, padding: '12px 22px', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>Try again</button>
+                  </div>
+                </>
+              ) : (
+                <div style={{ color: '#a3988a', fontSize: 14, maxWidth: 400, lineHeight: 1.6 }}>
+                  Click the <span style={{ background: '#2a241e', borderRadius: 6, padding: '2px 8px', fontWeight: 600, color: '#f4eee5' }}><Ic name="videoOff" size={15} style={{ verticalAlign: -2 }} /></span> icon in the address bar, choose <span style={{ color: '#f4eee5', fontWeight: 600 }}>Allow</span>, then reload. No luck? You can still join to watch and listen.
+                </div>
+              )}
               <button className="hv-bg-2a" onClick={() => { app.patch({ lobbyMic: false, lobbyCam: false }); app.joinMeeting(); }} style={{ background: '#241f1a', border: '1px solid #362f28', color: '#f4eee5', borderRadius: 12, padding: '12px 22px', fontWeight: 600, fontSize: 14, cursor: 'pointer', marginTop: 4 }}>Join without camera or mic</button>
             </div>
           )}

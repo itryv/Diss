@@ -139,3 +139,36 @@ input:focus, textarea:focus { border-color: #f08b5f !important; }
   /* Comfortable tap targets across the non-meeting screens */
   .screen-landing button, .screen-auth button, .shell-screen button, .screen-post button { min-height: 44px; }
 }
+
+/* ---------- Desktop shell (/desktop) ---------- */
+/* Hover states for the OS-chrome surfaces; the design expressed these as style-hover. */
+.dk-nav:hover { background: #241f1a; color: #f4eee5 !important; }
+.dk-row:hover { background: #241f1a; }
+.dk-tray-row:hover { background: #2a241e; }
+.dk-cap:hover { background: #2a241e; }
+.dk-cap-close:hover { background: #c94a38; }
+.dk-btn-2e:hover { background: #362f28 !important; }
+.dk-ghost:hover { color: #f4eee5 !important; border-color: #3a332b !important; }
+
+/* ---------- Packaged desktop app ---------- */
+/* macOS draws traffic lights over our content: reserve the top strip and make it
+   draggable so the frameless window still behaves like a window. */
+.is-electron-mac body { padding-top: 0; }
+.is-electron-mac .app-root::before {
+  content: ""; position: fixed; top: 0; left: 0; right: 0; height: 38px;
+  -webkit-app-region: drag; z-index: 500; pointer-events: auto;
+}
+.is-electron-mac .app-root button,
+.is-electron-mac .app-root a,
+.is-electron-mac .app-root input { -webkit-app-region: no-drag; }
+/* Push the app's own chrome clear of the traffic lights. */
+.is-electron-mac .shell-screen nav,
+.is-electron-mac .screen-landing header { padding-top: 38px; }
+.is-electron-mac .screen-meeting { padding-top: 0; }
+
+/* Satellite Electron windows (tray panel, mini window): transparent page so the
+   window's own rounded corners show, and no lingering focus rings on click. */
+html:has(.satellite), html:has(.mini-root) { background: transparent; }
+html:has(.satellite) body, html:has(.mini-root) body { background: transparent; overflow: hidden; }
+.satellite button:focus:not(:focus-visible),
+.mini-root button:focus:not(:focus-visible) { outline: none; }
