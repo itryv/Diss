@@ -473,9 +473,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     /** Start (or restart) the lobby preview with the currently selected devices. */
-    const startPreview = async (): Promise<void> => {
+    const startPreview = async (
+      deviceOverride?: Partial<Record<DeviceKind, string | null>>,
+    ): Promise<void> => {
       stopPreview();
       const st = ref.current;
+      // A picker change and this restart happen in the same event turn. React
+      // has not necessarily committed the patched id to `ref.current` yet, so
+      // carry the selected value into getUserMedia explicitly. Without this,
+      // the menu can say "FaceTime HD Camera" while macOS opens the previous
+      // device (often an iPhone through Continuity Camera).
+      const micId = deviceOverride?.mic !== undefined ? deviceOverride.mic : st.micId;
+      const camId = deviceOverride?.cam !== undefined ? deviceOverride.cam : st.camId;
 
       // On macOS the OS decides before the browser does. Asking first means a TCC
       // block reports as 'denied' with a System Settings fix, instead of arriving
@@ -487,7 +496,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const want = (id: string | null): MediaTrackConstraints | true =>
         id ? { deviceId: { exact: id } } : true;
       const attempts: MediaStreamConstraints[] = [
-        { audio: want(st.micId), video: want(st.camId) },
+        { audio: want(micId), video: want(camId) },
         // Remembered device unplugged → fall back to whatever the system offers.
         { audio: true, video: true },
       ];
@@ -1347,7 +1356,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
       // Lobby: restart the preview so the change is visible/audible immediately.
-      if (ref.current.screen === 'lobby' || streamRef.current) await startPreview();
+      if (ref.current.screen === 'lobby' || streamRef.current) {
+        await startPreview({ [kind]: deviceId });
+      }
     };
 
     const setVideoQuality = async (q: VideoQuality) => {

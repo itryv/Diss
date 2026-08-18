@@ -8,6 +8,7 @@ import type { Tile } from '../tiles';
 import { Ic, Lbl } from '../icons';
 import type { IconName } from '../icons';
 import { MENTION_ALL, fmtElapsed, initialsOf, moveInOrder, splitMentions } from '../util';
+import { DevicePicker } from './Lobby';
 
 /**
  * Touch targets are >= 44px everywhere.
@@ -1165,12 +1166,20 @@ function ControlBar() {
   const ctrlBtn = ctrlBtnFor(narrow);
   const { tiles, handsAhead, customOrder } = useTiles();
   const [shareOpen, setShareOpen] = useState(false);
+  const [deviceOpen, setDeviceOpen] = useState<'mic' | 'cam' | null>(null);
   const shareMode = activeShareMode(s.shareHasAudio, s.shareAudioOnly);
 
-  // The share menu is the only popup not in the store — close it when another opens.
+  // Device/share menus are local to the bar; store-backed popups close them.
   useEffect(() => {
-    if (s.moreOpen || s.leaveOpen || s.reactionsOpen) setShareOpen(false);
+    if (s.moreOpen || s.leaveOpen || s.reactionsOpen) {
+      setShareOpen(false);
+      setDeviceOpen(null);
+    }
   }, [s.moreOpen, s.leaveOpen, s.reactionsOpen]);
+
+  useEffect(() => {
+    if (deviceOpen) app.refreshDevices();
+  }, [deviceOpen, app]);
 
   /** Picking the mode you're already in stops the share; picking another swaps to it. */
   const pickShare = async (m: ShareMode) => {
@@ -1238,24 +1247,66 @@ function ControlBar() {
   const sectionLabel: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: '#6f665b', padding: '6px 13px 4px' };
   const divider = <div style={{ borderTop: '1px solid #3a332b', margin: '6px 0 2px' }} />;
 
+  const deviceMenu = (kind: 'mic' | 'cam') => (
+    <div
+      style={{
+        ...popupStyle(narrow, { position: 'absolute', bottom: 60, left: 0, width: 300, maxWidth: '92vw' }),
+        background: '#241f1a', border: '1px solid #3a332b', borderRadius: 14,
+        padding: 10, boxShadow: '0 12px 40px rgba(0,0,0,.5)', zIndex: 45,
+      }}
+    >
+      <div style={{ ...sectionLabel, padding: '2px 3px 7px' }}>{kind === 'mic' ? 'Audio devices' : 'Camera'}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <DevicePicker kind={kind} style={{ minHeight: 44 }} />
+        {kind === 'mic' && s.canPickSpeaker && (
+          <>
+            <DevicePicker kind="speaker" style={{ minHeight: 44 }} />
+            <button
+              className="hv-bg-2e"
+              onClick={app.testSpeaker}
+              disabled={s.speakerTesting}
+              style={{ minHeight: 42, background: '#2a241e', border: '1px solid #3a332b', color: '#f0a97f', borderRadius: 10, cursor: s.speakerTesting ? 'wait' : 'pointer', fontWeight: 600 }}
+            >
+              {s.speakerTesting ? 'Playing…' : 'Test speaker'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     // Never wrap. A wrapped bar was the phone bug: two rows, buttons off the
     // left edge, "…" and Leave stranded. Narrow shows only the controls that
     // genuinely fit one row; share / reactions / raise hand live in "More".
     <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexWrap: 'nowrap', gap: narrow ? 6 : 10, padding: narrow ? 'calc(10px) calc(10px + var(--sar)) calc(12px + var(--sab)) calc(10px + var(--sal))' : '14px 20px 18px', zIndex: 20, background: 'linear-gradient(transparent,rgba(14,12,10,.9))', opacity: s.bars ? 1 : 0, transition: 'opacity .4s', pointerEvents: s.bars ? 'auto' : 'none' }}>
-      <button
-        onClick={app.toggleMic}
-        title={s.micMuted && !s.canUnmute ? "The host has turned off unmuting — ask them to unmute you" : 'Mute (M)'}
-        aria-disabled={s.micMuted && !s.canUnmute}
-        style={{ ...ctrlBtn, background: s.micMuted ? 'rgba(201,74,56,.85)' : '#1e1a16', borderColor: s.micMuted ? '#c94a38' : '#2e2822', opacity: s.micMuted && !s.canUnmute ? 0.5 : 1, cursor: s.micMuted && !s.canUnmute ? 'not-allowed' : 'pointer' }}
-      >
-        <Ic name={s.micMuted ? 'micOff' : 'mic'} size={20} />
-        <span style={{ color: '#8a7f70', alignSelf: 'flex-end', paddingBottom: 6 }}><Ic name="chevronDown" size={10} /></span>
-      </button>
-      <button onClick={app.toggleCam} title="Camera (V)" style={{ ...ctrlBtn, background: s.camOff ? 'rgba(201,74,56,.85)' : '#1e1a16', borderColor: s.camOff ? '#c94a38' : '#2e2822' }}>
-        <Ic name={s.camOff ? 'videoOff' : 'video'} size={20} />
-        <span style={{ color: '#8a7f70', alignSelf: 'flex-end', paddingBottom: 6 }}><Ic name="chevronDown" size={10} /></span>
-      </button>
+      <div style={{ position: 'relative', display: 'flex', ...ctrlBtn, padding: 0, overflow: 'visible', background: s.micMuted ? 'rgba(201,74,56,.85)' : '#1e1a16', borderColor: s.micMuted ? '#c94a38' : '#2e2822', opacity: s.micMuted && !s.canUnmute ? 0.5 : 1 }}>
+        <button
+          onClick={app.toggleMic}
+          title={s.micMuted && !s.canUnmute ? "The host has turned off unmuting — ask them to unmute you" : 'Mute (M)'}
+          aria-disabled={s.micMuted && !s.canUnmute}
+          style={{ alignSelf: 'stretch', flex: 1, minWidth: 0, padding: '0 5px 0 10px', background: 'none', border: 0, color: 'inherit', cursor: s.micMuted && !s.canUnmute ? 'not-allowed' : 'pointer' }}
+        ><Ic name={s.micMuted ? 'micOff' : 'mic'} size={20} /></button>
+        <button
+          onClick={() => { setDeviceOpen(o => o === 'mic' ? null : 'mic'); setShareOpen(false); app.patch({ moreOpen: false, leaveOpen: false, reactionsOpen: false }); }}
+          title="Choose microphone or speaker"
+          aria-expanded={deviceOpen === 'mic'}
+          style={{ alignSelf: 'stretch', width: 22, padding: 0, background: deviceOpen === 'mic' ? 'rgba(255,255,255,.08)' : 'none', border: 0, borderLeft: '1px solid rgba(255,255,255,.08)', color: '#a3988a', cursor: 'pointer', borderRadius: '0 13px 13px 0' }}
+        ><Ic name="chevronDown" size={10} /></button>
+        {deviceOpen === 'mic' && deviceMenu('mic')}
+      </div>
+      <div style={{ position: 'relative', display: 'flex', ...ctrlBtn, padding: 0, overflow: 'visible', background: s.camOff ? 'rgba(201,74,56,.85)' : '#1e1a16', borderColor: s.camOff ? '#c94a38' : '#2e2822' }}>
+        <button onClick={app.toggleCam} title="Camera (V)" style={{ alignSelf: 'stretch', flex: 1, minWidth: 0, padding: '0 5px 0 10px', background: 'none', border: 0, color: 'inherit', cursor: 'pointer' }}>
+          <Ic name={s.camOff ? 'videoOff' : 'video'} size={20} />
+        </button>
+        <button
+          onClick={() => { setDeviceOpen(o => o === 'cam' ? null : 'cam'); setShareOpen(false); app.patch({ moreOpen: false, leaveOpen: false, reactionsOpen: false }); }}
+          title="Choose camera"
+          aria-expanded={deviceOpen === 'cam'}
+          style={{ alignSelf: 'stretch', width: 22, padding: 0, background: deviceOpen === 'cam' ? 'rgba(255,255,255,.08)' : 'none', border: 0, borderLeft: '1px solid rgba(255,255,255,.08)', color: '#a3988a', cursor: 'pointer', borderRadius: '0 13px 13px 0' }}
+        ><Ic name="chevronDown" size={10} /></button>
+        {deviceOpen === 'cam' && deviceMenu('cam')}
+      </div>
       {!narrow && <div style={{ position: 'relative' }}>
         <button
           onClick={() => {
@@ -1263,6 +1314,7 @@ function ControlBar() {
             // opening a menu whose every option would be rejected.
             if (!s.canShare) { app.toast('The host has turned off screen sharing'); return; }
             setShareOpen(o => !o);
+            setDeviceOpen(null);
             app.patch({ moreOpen: false, leaveOpen: false, reactionsOpen: false });
           }}
           title={!s.canShare ? 'The host has turned off screen sharing' : s.sharing ? 'Sharing — change or stop' : 'Share your screen'}
