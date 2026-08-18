@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { bridge } from './bridge';
-import type { MeetingState } from './bridge';
+import type { MeetingState, MiniFrame } from './bridge';
 import { DCam, DCamOffMini, DExpand, DHangup, DMic, DMicOff } from './micons';
 
 const DISPLAY = "'Bricolage Grotesque',sans-serif";
@@ -38,8 +38,9 @@ function Control({ children, danger, onClick, title }: { children: React.ReactNo
  */
 export function MiniApp() {
   const api = bridge();
-  const [m, setM] = useState<MeetingState>({ active: false, title: '', muted: false, cameraOff: false, speaker: '', peers: 0 });
+  const [m, setM] = useState<MeetingState>({ active: false, title: '', muted: false, cameraOff: false, speaker: '', peers: 0, link: '' });
   const [hover, setHover] = useState(false);
+  const [frame, setFrame] = useState<MiniFrame>({ dataUrl: null, fit: 'cover', name: '' });
 
   useEffect(() => {
     if (!api) return;
@@ -47,7 +48,9 @@ export function MiniApp() {
     return api.onMeeting(setM);
   }, [api]);
 
-  const name = m.speaker || m.title || 'Weekly team sync';
+  useEffect(() => api?.mini.onFrame(setFrame), [api]);
+
+  const name = frame.name || m.speaker || m.title || 'Weekly team sync';
   const speaking = !!m.speaker;
 
   return (
@@ -71,6 +74,9 @@ export function MiniApp() {
           {initialsOf(name)}
         </span>
       </div>
+      {frame.dataUrl && (
+        <img src={frame.dataUrl} alt="Live meeting video" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: frame.fit }} />
+      )}
 
       <div style={{
         position: 'absolute', left: 9, bottom: 9, display: 'flex', alignItems: 'center', gap: 6,

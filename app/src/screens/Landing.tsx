@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useApp } from '../store';
 
 const DESKTOP_VERSION = '1.0.0';
@@ -9,6 +10,16 @@ export function Landing() {
   const s = app.s;
   const ok = s.code.trim().length > 0;
   const join = () => app.openCode(s.code);
+  const [recommendedMac, setRecommendedMac] = useState<'arm64' | 'x64'>('arm64');
+  useEffect(() => {
+    const ua = navigator as Navigator & {
+      userAgentData?: { getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }> };
+    };
+    void ua.userAgentData?.getHighEntropyValues?.(['architecture']).then(({ architecture }) => {
+      if (/x86|x64/i.test(architecture || '')) setRecommendedMac('x64');
+      else if (/arm/i.test(architecture || '')) setRecommendedMac('arm64');
+    }).catch(() => undefined);
+  }, []);
   return (
     <section style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'radial-gradient(1000px 600px at 70% -10%, rgba(240,139,95,.10), transparent 60%), #151210' }}>
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '22px 48px' }}>
@@ -42,8 +53,8 @@ export function Landing() {
             Native screen and computer-audio sharing, global mute shortcuts, a menu-bar panel, and a floating meeting window. Requires macOS 13 or later.
           </div>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <a href={MAC_ARM_DOWNLOAD} download style={{ background: '#f08b5f', color: '#241209', borderRadius: 11, padding: '11px 18px', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>Download for Apple Silicon</a>
-            <a href={MAC_INTEL_DOWNLOAD} download style={{ background: '#241f1a', border: '1px solid #4a4036', color: '#f4eee5', borderRadius: 11, padding: '11px 18px', fontWeight: 650, fontSize: 14, textDecoration: 'none' }}>Download for Intel</a>
+            <a href={MAC_ARM_DOWNLOAD} download style={{ background: recommendedMac === 'arm64' ? '#f08b5f' : '#241f1a', border: recommendedMac === 'arm64' ? '1px solid transparent' : '1px solid #4a4036', color: recommendedMac === 'arm64' ? '#241209' : '#f4eee5', borderRadius: 11, padding: '11px 18px', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>Apple Silicon{recommendedMac === 'arm64' ? ' — Recommended' : ''}</a>
+            <a href={MAC_INTEL_DOWNLOAD} download style={{ background: recommendedMac === 'x64' ? '#f08b5f' : '#241f1a', border: recommendedMac === 'x64' ? '1px solid transparent' : '1px solid #4a4036', color: recommendedMac === 'x64' ? '#241209' : '#f4eee5', borderRadius: 11, padding: '11px 18px', fontWeight: 650, fontSize: 14, textDecoration: 'none' }}>Intel{recommendedMac === 'x64' ? ' — Recommended' : ''}</a>
           </div>
           <div style={{ color: '#756b60', fontSize: 11.5, lineHeight: 1.45, marginTop: 14 }}>
             Preview release v{DESKTOP_VERSION}. It is not yet Apple-notarized, so macOS may ask you to confirm the first launch in Privacy &amp; Security.

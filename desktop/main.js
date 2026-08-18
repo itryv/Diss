@@ -62,6 +62,19 @@ const MIME = {
 
 let uiOrigin = '';
 
+function isSafeExternalUrl(url) {
+  try {
+    const protocol = new URL(String(url)).protocol;
+    return protocol === 'https:' || protocol === 'http:';
+  } catch { return false; }
+}
+
+function openSafeExternal(url) {
+  if (!isSafeExternalUrl(url)) return false;
+  void shell.openExternal(String(url));
+  return true;
+}
+
 function readBody(req) {
   return new Promise(resolve => {
     const chunks = [];
@@ -123,11 +136,18 @@ async function proxyApi(req, res) {
 }
 
 function serveRenderer(req, res) {
-  let rel = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+  let rel;
+  try { rel = decodeURIComponent(new URL(req.url, 'http://localhost').pathname); }
+  catch {
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Bad request');
+    return;
+  }
   if (rel === '/' || rel === '') rel = '/index.html';
   const file = path.normalize(path.join(RENDERER_DIR, rel));
   // Unknown paths fall back to index.html so hash routes keep working.
-  const target = file.startsWith(RENDERER_DIR) && fs.existsSync(file) && fs.statSync(file).isFile() ? file : DIST;
+  const insideRenderer = file === RENDERER_DIR || file.startsWith(`${RENDERER_DIR}${path.sep}`);
+  const target = insideRenderer && fs.existsSync(file) && fs.statSync(file).isFile() ? file : DIST;
   // Built assets carry a content hash in the filename, so they can be cached hard.
   // index.html must not be: it is what points at the current hashes, and a cached
   // copy pins the app to a previous build even after an update.
@@ -187,6 +207,19 @@ function isOwnOrigin(url) {
   } catch { return false; }
 }
 
+/** Keep every privileged BrowserWindow on the renderer origin we own. */
+function hardenWindowNavigation(target) {
+  target.webContents.setWindowOpenHandler(({ url }) => {
+    openSafeExternal(url);
+    return { action: 'deny' };
+  });
+  target.webContents.on('will-navigate', (event, url) => {
+    if (isOwnOrigin(url)) return;
+    event.preventDefault();
+    openSafeExternal(url);
+  });
+}
+
 function installPermissionHandlers(sess) {
   sess.setPermissionRequestHandler((contents, permission, callback, details) => {
     const url = details?.requestingUrl || contents?.getURL?.();
@@ -201,26 +234,50 @@ function installPermissionHandlers(sess) {
 
   // Screen share: Electron denies getDisplayMedia unless this is handled, which
   // is why sharing silently fails without it. We answer with our own picker.
-  sess.setDisplayMediaRequestHandler(async (request, callback) => {
-    if (!isOwnOrigin(request?.frame?.url ?? request?.securityOrigin)) return callback({});
-    try {
-      const choice = await pickShareSource();
-      if (!choice) return callback({});                     // user cancelled
-      const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+  sess.setDisplayMediaRequestHandler((request, callback) => {
+    // Chromium may throw synchronously when an empty response cannot satisfy the
+    // original video constraint. Never let that become an unhandled rejection in
+    // Electron's main process; the renderer still receives AbortError normally.
+    const respond = payload => {
+      try { callback(payload); }
+      catch (e) { console.warn('[diss] display media response rejected:', e?.message || String(e)); }
+    };
+    if (!isOwnOrigin(request?.frame?.url ?? request?.securityOrigin)) { respond({}); return; }
+    if (IS_MAC && ['denied', 'restricted'].includes(systemPreferences.getMediaAccessStatus('screen'))) {
+      console.error('[diss] display media request blocked: Screen Recording permission is denied');
+      respond({});
+      return;
+    }
+    const selectSource = async () => {
+      let sources;
+      let choice;
+      if (process.env.DISS_AUDIO_SMOKE) {
+        sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+        choice = { id: sources.find(s => s.id.startsWith('screen:'))?.id, withAudio: true };
+      } else {
+        choice = await pickShareSource();
+        if (!choice?.id) return respond({});
+        // Resolve again after the user chooses: windows can open or close while
+        // the picker is visible, and Electron requires the current source object.
+        sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+      }
+      if (!choice?.id) return respond({});                  // user cancelled
       const source = sources.find(s => s.id === choice.id);
-      if (!source) return callback({});
+      if (!source) return respond({});
       // Electron 39+ uses Apple's native CoreAudio Tap API on macOS 14.2+ and
       // ScreenCaptureKit on macOS 13/14.1. Windows uses WASAPI loopback. Both
       // arrive through the same Electron `loopback` source — no virtual audio
       // device is required.
       const canLoopback = process.platform === 'win32'
         || (IS_MAC && Number(process.getSystemVersion().split('.')[0]) >= 13);
-      const audio = choice.withAudio && canLoopback ? 'loopback' : undefined;
-      callback(audio ? { video: source, audio } : { video: source });
-    } catch (e) {
-      console.error('[diss] display media request failed:', e && e.message);
-      callback({});
-    }
+      const audio = captureIntent.audio && canLoopback ? 'loopback' : undefined;
+      respond(audio ? { video: source, audio } : { video: source });
+    };
+    const failed = e => {
+      console.error('[diss] display media request failed:', e?.message || String(e));
+      respond({});
+    };
+    void selectSource().catch(failed);
   }, { useSystemPicker: false });
 }
 
@@ -243,6 +300,7 @@ async function ensureMediaAccess(kind) {
 
 /** Resolves with the chosen source, or null when the user cancels. */
 let pendingPick = null;
+let captureIntent = { audio: false, audioOnly: false };
 
 function pickShareSource() {
   if (pendingPick) return pendingPick.promise;
@@ -259,6 +317,7 @@ function pickShareSource() {
     },
   });
   loadRoute(picker, 'picker');
+  hardenWindowNavigation(picker);
   picker.once('ready-to-show', () => { picker.show(); activate(); });
 
   let settle;
@@ -280,9 +339,12 @@ function pickShareSource() {
 const win = { main: null, mini: null, tray: null, permissions: null };
 let tray = null;
 let quitting = false;
+let quitPrompt = null;
+let mainRendererReady = false;
+const pendingDeepLinks = [];
 
 /** Mirrors what the renderer reports so the tray, shortcuts and quit guard can act on it. */
-const meeting = { active: false, title: '', muted: false, cameraOff: false, speaker: '', peers: 0 };
+const meeting = { active: false, title: '', muted: false, cameraOff: false, speaker: '', peers: 0, link: '' };
 
 /** Persisted-ish preferences. Mirrors Settings → Desktop; in-memory for v1. */
 const prefs = {
@@ -293,6 +355,25 @@ const prefs = {
   muteCombo: IS_MAC ? 'Command+Shift+A' : 'Control+Shift+A',
   miniCombo: IS_MAC ? 'Command+Shift+P' : 'Control+Shift+P',
 };
+let miniPositioned = false;
+let savedMiniPosition = null;
+
+function loadWindowState() {
+  try {
+    const state = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'window-state.json'), 'utf8'));
+    if (Number.isFinite(state?.mini?.x) && Number.isFinite(state?.mini?.y)) savedMiniPosition = state.mini;
+  } catch { /* first launch, or an invalid old state file */ }
+}
+
+function saveMiniPosition() {
+  if (!win.mini || win.mini.isDestroyed()) return;
+  const { x, y } = win.mini.getBounds();
+  try {
+    fs.writeFileSync(path.join(app.getPath('userData'), 'window-state.json'), JSON.stringify({ mini: { x, y } }));
+  } catch (e) {
+    console.warn('[diss] could not save mini-window position:', e && e.message);
+  }
+}
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -367,6 +448,32 @@ function syncMeetingState() {
   if (!meeting.active && win.mini && !win.mini.isDestroyed()) win.mini.hide();
 }
 
+async function requestQuit(parent = win.main) {
+  if (quitting) return true;
+  if (quitPrompt) return quitPrompt;
+  quitPrompt = (async () => {
+    if (meeting.active) {
+      const options = {
+        type: 'warning',
+        buttons: ['Stay in the meeting', 'Quit Diss'],
+        defaultId: 0, cancelId: 0,
+        message: `Quitting will disconnect you from ${meeting.title || 'the meeting'}`,
+        detail: meeting.peers
+          ? `${meeting.peers} people are still in it. You can rejoin with the same link.`
+          : 'You can rejoin with the same link.',
+      };
+      const { response } = parent && !parent.isDestroyed()
+        ? await dialog.showMessageBox(parent, options)
+        : await dialog.showMessageBox(options);
+      if (response !== 1) return false;
+    }
+    quitting = true;
+    app.quit();
+    return true;
+  })();
+  try { return await quitPrompt; } finally { quitPrompt = null; }
+}
+
 /* ------------------------------------------------------------------ windows */
 
 function createMainWindow() {
@@ -387,6 +494,8 @@ function createMainWindow() {
   });
 
   loadRoute(win.main);
+  hardenWindowNavigation(win.main);
+  win.main.webContents.on('did-start-navigation', () => { mainRendererReady = false; });
   win.main.once('ready-to-show', () => { win.main.show(); activate(); });
 
   // Closing while in a meeting shrinks to the mini window instead of dropping the
@@ -403,10 +512,6 @@ function createMainWindow() {
     if (prefs.keepRunning) { e.preventDefault(); win.main.hide(); }
   });
 
-  win.main.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
 }
 
 function createMiniWindow() {
@@ -426,19 +531,34 @@ function createMiniWindow() {
   win.mini.setAlwaysOnTop(true, 'screen-saver');
   win.mini.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   loadRoute(win.mini, 'mini');
+  hardenWindowNavigation(win.mini);
   win.mini.on('close', e => { if (!quitting) { e.preventDefault(); win.mini.hide(); } });
+  win.mini.on('move', () => { if (miniPositioned) saveMiniPosition(); });
 }
 
 /** Park the mini window in the last-used corner (bottom-right by default). */
 function positionMini() {
+  if (savedMiniPosition) {
+    const visible = screen.getAllDisplays().some(({ workArea }) =>
+      savedMiniPosition.x >= workArea.x - 120
+      && savedMiniPosition.x < workArea.x + workArea.width - 40
+      && savedMiniPosition.y >= workArea.y - 80
+      && savedMiniPosition.y < workArea.y + workArea.height - 30);
+    if (visible) {
+      win.mini.setPosition(Math.round(savedMiniPosition.x), Math.round(savedMiniPosition.y));
+      miniPositioned = true;
+      return;
+    }
+  }
   const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const [w, h] = win.mini.getSize();
   win.mini.setPosition(workArea.x + workArea.width - w - 24, workArea.y + workArea.height - h - 24);
+  miniPositioned = true;
 }
 
 function showMini() {
   if (!win.mini || win.mini.isDestroyed()) createMiniWindow();
-  positionMini();
+  if (!miniPositioned) positionMini();
   win.mini.showInactive();
 }
 
@@ -448,11 +568,10 @@ function createTrayPanel() {
     show: false, frame: false, resizable: false, movable: false,
     alwaysOnTop: true, skipTaskbar: true, fullscreenable: false,
     transparent: true, backgroundColor: '#00000000',
-    // macOS: a non-activating NSPanel, like every real menu-bar app. A regular
-    // window here steals app activation, and when it hides on blur with no other
-    // Diss window visible, macOS hands the menu bar to whichever app is next —
-    // which reads as "Diss's menu bar opens another app".
-    ...(IS_MAC ? { type: 'panel', hiddenInMissionControl: true } : {}),
+    // showInactive() below gives this ordinary frameless window menu-bar-panel
+    // behaviour. Electron's `type: panel` applies an NSPanel-only style mask to
+    // an NSWindow and currently emits a native warning on modern macOS.
+    ...(IS_MAC ? { hiddenInMissionControl: true } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -460,6 +579,7 @@ function createTrayPanel() {
     },
   });
   loadRoute(win.tray, 'tray');
+  hardenWindowNavigation(win.tray);
   win.tray.on('blur', () => win.tray.hide());
 }
 
@@ -477,8 +597,8 @@ function toggleTrayPanel() {
   if (!win.tray || win.tray.isDestroyed()) createTrayPanel();
   if (win.tray.isVisible()) return win.tray.hide();
   positionTrayPanel();
-  win.tray.show();
-  win.tray.focus();
+  // showInactive keeps opening the menu-bar panel from activating the whole app.
+  IS_MAC ? win.tray.showInactive() : win.tray.show();
 }
 
 function createTray() {
@@ -491,7 +611,7 @@ function createTray() {
       { label: 'Permissions…', click: () => openPermissionsWindow() },
       { label: meeting.active ? `Leave ${meeting.title || 'meeting'}` : 'New meeting', click: () => broadcast('shortcut', meeting.active ? 'leave' : 'new-meeting') },
       { type: 'separator' },
-      { label: 'Quit Diss', click: () => app.quit() },
+      { label: 'Quit Diss', click: () => { void requestQuit(win.main); } },
     ]));
   });
 }
@@ -519,6 +639,7 @@ function openPermissionsWindow() {
     },
   });
   loadRoute(win.permissions, 'permissions');
+  hardenWindowNavigation(win.permissions);
   win.permissions.once('ready-to-show', () => { win.permissions.show(); activate(); });
   win.permissions.on('closed', () => { win.permissions = null; });
   return win.permissions;
@@ -585,13 +706,45 @@ function registerShortcuts() {
 function handleDeepLink(url) {
   if (!url || !url.startsWith('diss://')) return;
   const code = url.replace(/^diss:\/\/(join\/)?/, '').replace(/\/+$/, '');
+  if (!code) return;
+  if (!app.isReady()) {
+    if (!pendingDeepLinks.includes(code)) pendingDeepLinks.push(code);
+    return;
+  }
   showMain();
-  broadcast('deeplink', { code });
+  if (mainRendererReady && win.main && !win.main.isDestroyed()) {
+    win.main.webContents.send('deeplink', { code });
+  } else if (!pendingDeepLinks.includes(code)) {
+    pendingDeepLinks.push(code);
+  }
 }
 
 /* ---------------------------------------------------------------------- IPC */
 
-ipcMain.handle('app:info', () => ({
+function isTrustedIpc(event, mainOnly = false) {
+  const trusted = isOwnOrigin(event.senderFrame?.url || event.sender?.getURL?.());
+  return trusted && (!mainOnly || event.sender === win.main?.webContents);
+}
+
+function handleIpc(channel, handler, { mainOnly = false } = {}) {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!isTrustedIpc(event, mainOnly)) {
+      console.warn('[diss] rejected IPC:', channel, event.senderFrame?.url || event.sender?.getURL?.());
+      throw new Error('Untrusted renderer');
+    }
+    return handler(event, ...args);
+  });
+}
+
+handleIpc('renderer:ready', () => {
+  mainRendererReady = true;
+  while (pendingDeepLinks.length && win.main && !win.main.isDestroyed()) {
+    win.main.webContents.send('deeplink', { code: pendingDeepLinks.shift() });
+  }
+  return true;
+}, { mainOnly: true });
+
+handleIpc('app:info', () => ({
   platform: process.platform,
   version: app.getVersion(),
   electron: process.versions.electron,
@@ -599,7 +752,7 @@ ipcMain.handle('app:info', () => ({
   meeting,
 }));
 
-ipcMain.handle('prefs:set', (_e, patch) => {
+handleIpc('prefs:set', (_e, patch) => {
   Object.assign(prefs, patch || {});
   if (patch && ('muteCombo' in patch || 'miniCombo' in patch)) registerShortcuts();
   if (patch && 'launchAtLogin' in patch) {
@@ -609,14 +762,14 @@ ipcMain.handle('prefs:set', (_e, patch) => {
   return prefs;
 });
 
-ipcMain.handle('meeting:set', (_e, patch) => {
+handleIpc('meeting:set', (_e, patch) => {
   Object.assign(meeting, patch || {});
   syncMeetingState();
   return meeting;
-});
+}, { mainOnly: true });
 
 /** A satellite window (mini / tray panel) asking the main window to act. */
-ipcMain.handle('command', (_e, name) => {
+handleIpc('command', (_e, name) => {
   if (name === 'toggle-mute') { meeting.muted = !meeting.muted; syncMeetingState(); }
   if (name === 'toggle-camera') { meeting.cameraOff = !meeting.cameraOff; syncMeetingState(); }
   broadcast('shortcut', name);
@@ -624,20 +777,32 @@ ipcMain.handle('command', (_e, name) => {
   return true;
 });
 
-ipcMain.handle('permissions:open-window', () => { openPermissionsWindow(); return true; });
-ipcMain.handle('mini:show', () => { showMini(); return true; });
-ipcMain.handle('mini:hide', () => { win.mini && win.mini.hide(); return true; });
-ipcMain.handle('mini:expand', () => { win.mini && win.mini.hide(); showMain(); return true; });
-ipcMain.handle('mini:resize', (_e, { width, height }) => {
+handleIpc('permissions:open-window', () => { openPermissionsWindow(); return true; });
+handleIpc('mini:show', () => { showMini(); return true; });
+handleIpc('mini:hide', () => { win.mini && win.mini.hide(); return true; });
+handleIpc('mini:expand', () => { win.mini && win.mini.hide(); showMain(); return true; });
+handleIpc('mini:resize', (_e, { width, height }) => {
   if (!win.mini) return false;
   win.mini.setSize(Math.round(width), Math.round(height));
-  positionMini();
   return true;
 });
+handleIpc('mini:frame', (_e, frame) => {
+  if (!win.mini || win.mini.isDestroyed()) return false;
+  const dataUrl = frame?.dataUrl;
+  if (dataUrl !== null && (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/jpeg;base64,') || dataUrl.length > 750_000)) {
+    return false;
+  }
+  win.mini.webContents.send('mini:frame', {
+    dataUrl: dataUrl || null,
+    fit: frame?.fit === 'contain' ? 'contain' : 'cover',
+    name: String(frame?.name || '').slice(0, 120),
+  });
+  return true;
+}, { mainOnly: true });
 
-ipcMain.handle('tray:hide', () => { win.tray && win.tray.hide(); return true; });
+handleIpc('tray:hide', () => { win.tray && win.tray.hide(); return true; });
 /** The panel measures its own content so the window is never taller than what's in it. */
-ipcMain.handle('tray:resize', (_e, height) => {
+handleIpc('tray:resize', (_e, height) => {
   if (!win.tray || win.tray.isDestroyed()) return false;
   const h = Math.max(200, Math.min(700, Math.round(height)));
   const [w] = win.tray.getSize();
@@ -645,8 +810,8 @@ ipcMain.handle('tray:resize', (_e, height) => {
   if (win.tray.isVisible()) positionTrayPanel();
   return true;
 });
-ipcMain.handle('window:show-main', () => { showMain(); return true; });
-ipcMain.handle('notify', (_e, opts) => { notify(opts || {}); return true; });
+handleIpc('window:show-main', () => { showMain(); return true; });
+handleIpc('notify', (_e, opts) => { notify(opts || {}); return true; });
 
 /**
  * Real screen/window picker data, including live thumbnails.
@@ -688,7 +853,7 @@ async function collectSources(type) {
  * picker asks for screens first so it can render them while windows are still
  * being captured — grabbing a dozen window bitmaps is the slow part.
  */
-ipcMain.handle('capture:sources', async (_e, type) => {
+handleIpc('capture:sources', async (_e, type) => {
   if (type === 'screen' || type === 'window') {
     const list = await collectSources(type);
     const blank = list.filter(s => !s.thumbnail).length;
@@ -700,11 +865,17 @@ ipcMain.handle('capture:sources', async (_e, type) => {
   return [...screens, ...windows];
 });
 
+handleIpc('capture:set-intent', (_e, intent) => {
+  captureIntent = { audio: !!intent?.audio, audioOnly: !!intent?.audioOnly };
+  return captureIntent;
+}, { mainOnly: true });
+handleIpc('capture:intent', () => captureIntent);
+
 /** Ask for (or read) one permission. Triggers the OS prompt when undecided. */
-ipcMain.handle('permissions:request', (_e, kind) => ensureMediaAccess(kind));
+handleIpc('permissions:request', (_e, kind) => ensureMediaAccess(kind));
 
 /** Read every permission's status without prompting — drives the settings panel. */
-ipcMain.handle('permissions:status', () => {
+handleIpc('permissions:status', () => {
   if (!IS_MAC) {
     // Windows has no equivalent pre-flight: capture is granted at use time and
     // the picker itself is the consent moment.
@@ -724,7 +895,7 @@ const SETTINGS_PANE = {
   screen: 'Privacy_ScreenCapture',
 };
 
-ipcMain.handle('permissions:open-settings', (_e, pane) => {
+handleIpc('permissions:open-settings', (_e, pane) => {
   if (!IS_MAC) {
     const win32 = { camera: 'ms-settings:privacy-webcam', microphone: 'ms-settings:privacy-microphone' };
     return shell.openExternal(win32[pane] || 'ms-settings:privacy');
@@ -739,7 +910,7 @@ ipcMain.handle('permissions:open-settings', (_e, pane) => {
  * it once capture is attempted, and the grant needs a relaunch to take effect.
  * Trigger the system prompt by touching the capture API, then tell the truth.
  */
-ipcMain.handle('permissions:request-screen', async () => {
+handleIpc('permissions:request-screen', async () => {
   if (!IS_MAC) return { status: 'granted', needsRestart: false };
   const before = systemPreferences.getMediaAccessStatus('screen');
   if (before === 'granted') return { status: 'granted', needsRestart: false };
@@ -751,36 +922,16 @@ ipcMain.handle('permissions:request-screen', async () => {
   return { status: after, needsRestart: after === 'granted' && before !== 'granted' };
 });
 
-ipcMain.handle('app:relaunch', () => { app.relaunch(); app.exit(0); });
+handleIpc('app:relaunch', () => { quitting = true; app.relaunch(); app.exit(0); });
 
 /** Only ever open http(s) externally — never let a renderer hand us a file: or custom scheme. */
-ipcMain.handle('app:open-external', (_e, url) => {
-  try {
-    const u = new URL(String(url));
-    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
-    shell.openExternal(u.toString());
-    return true;
-  } catch { return false; }
-});
+handleIpc('app:open-external', (_e, url) => openSafeExternal(url));
 
 /* The picker window reporting back. */
-ipcMain.handle('picker:choose', (_e, choice) => { pendingPick?.finish(choice); return true; });
-ipcMain.handle('picker:cancel', () => { pendingPick?.finish(null); return true; });
+handleIpc('picker:choose', (_e, choice) => { pendingPick?.finish(choice); return true; });
+handleIpc('picker:cancel', () => { pendingPick?.finish(null); return true; });
 
-ipcMain.handle('app:quit', async () => {
-  if (meeting.active) {
-    const { response } = await dialog.showMessageBox(win.main, {
-      type: 'warning',
-      buttons: ['Stay in the meeting', 'Quit Diss'],
-      defaultId: 0, cancelId: 0,
-      message: `Quitting will disconnect you from ${meeting.title || 'the meeting'}`,
-      detail: meeting.peers ? `${meeting.peers} people are still in it. You can rejoin with the same link.` : 'You can rejoin with the same link.',
-    });
-    if (response !== 1) return false;
-  }
-  app.quit();
-  return true;
-});
+handleIpc('app:quit', () => requestQuit(win.main));
 
 /* -------------------------------------------------------------- app menu */
 
@@ -793,7 +944,7 @@ function buildAppMenu() {
         { label: 'Settings…', accelerator: 'Command+,', click: () => { showMain(); broadcast('shortcut', 'settings'); } },
         { label: 'Permissions…', click: () => openPermissionsWindow() },
         { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { type: 'separator' },
-        { label: 'Quit Diss', accelerator: 'Command+Q', click: () => { quitting = true; app.quit(); } },
+        { label: 'Quit Diss', accelerator: 'Command+Q', click: () => { void requestQuit(win.main); } },
       ],
     }] : []),
     { label: 'File', submenu: [
@@ -801,7 +952,7 @@ function buildAppMenu() {
       { label: 'Join with a code…', accelerator: 'CommandOrControl+J', click: () => { showMain(); broadcast('shortcut', 'join'); } },
       ...(IS_MAC ? [] : [{ label: 'Permissions…', click: () => openPermissionsWindow() }]),
       { type: 'separator' },
-      IS_MAC ? { role: 'close' } : { label: 'Quit', accelerator: 'Control+Q', click: () => { quitting = true; app.quit(); } },
+      IS_MAC ? { role: 'close' } : { label: 'Quit', accelerator: 'Control+Q', click: () => { void requestQuit(win.main); } },
     ] },
     { role: 'editMenu' },
     { label: 'Meeting', submenu: [
@@ -811,7 +962,7 @@ function buildAppMenu() {
       { label: 'Show / hide mini window', accelerator: 'CommandOrControl+Shift+P', click: () => (win.mini && win.mini.isVisible() ? win.mini.hide() : showMini()) },
     ] },
     { role: 'windowMenu' },
-    { role: 'help', submenu: [{ label: 'Learn more', click: () => shell.openExternal('https://diss.app') }] },
+    { role: 'help', submenu: [{ label: 'Learn more', click: () => openSafeExternal('https://diss.app') }] },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -833,6 +984,8 @@ app.on('open-url', (e, url) => { e.preventDefault(); handleDeepLink(url); });
 app.whenReady().then(async () => {
   if (!DEV_URL) await startUiServer();
   installPermissionHandlers(session.defaultSession);
+  if (process.env.DISS_AUDIO_SMOKE) captureIntent = { audio: true, audioOnly: false };
+  loadWindowState();
   app.setAsDefaultProtocolClient('diss');
   if (IS_MAC) app.setAboutPanelOptions({ applicationName: 'Diss', applicationVersion: app.getVersion() });
 
@@ -845,6 +998,11 @@ app.whenReady().then(async () => {
   console.log('[diss] global shortcuts:', JSON.stringify(shortcuts), prefs.muteCombo, prefs.miniCombo);
 
   app.on('activate', () => showMain());
+
+  // Windows/Linux deliver the first protocol launch in argv. Subsequent launches
+  // arrive through second-instance; macOS uses open-url for both cases.
+  const initialLink = process.argv.find(arg => arg.startsWith('diss://'));
+  if (initialLink) handleDeepLink(initialLink);
 
   if (process.env.DISS_SELFTEST) {
     require('./selftest')({
@@ -890,9 +1048,42 @@ app.whenReady().then(async () => {
       app.exit(bridged && rendered ? 0 : 1);
     });
   }
+
+  // Interactive native-audio diagnostic. It runs the same getDisplayMedia path
+  // as a meeting and reports whether Chromium received a live loopback track.
+  if (process.env.DISS_AUDIO_SMOKE) {
+    win.main.webContents.once('did-finish-load', async () => {
+      const result = await win.main.webContents.executeJavaScript(`(async () => {
+        const permissions = await window.diss.permissions.status();
+        if (permissions.screen === 'denied' || permissions.screen === 'restricted') {
+          return { ok: false, error: 'Screen Recording permission is ' + permissions.screen };
+        }
+        return navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
+          .then(stream => {
+            const audio = stream.getAudioTracks()[0];
+            const video = stream.getVideoTracks()[0];
+            const result = {
+              ok: !!audio && audio.readyState === 'live',
+              audio: audio ? { label: audio.label, readyState: audio.readyState, muted: audio.muted } : null,
+              video: video ? { label: video.label, readyState: video.readyState } : null,
+            };
+            stream.getTracks().forEach(track => track.stop());
+            return result;
+          })
+          .catch(error => ({ ok: false, error: error.name + ': ' + error.message }));
+      })()
+      `).catch(error => ({ ok: false, error: error.message }));
+      console.log('[diss] native audio diagnostic:', JSON.stringify(result, null, 2));
+      app.exit(result.ok ? 0 : 1);
+    });
+  }
 });
 
-app.on('before-quit', () => { quitting = true; });
+app.on('before-quit', event => {
+  if (quitting || !meeting.active) { quitting = true; return; }
+  event.preventDefault();
+  void requestQuit(win.main);
+});
 app.on('will-quit', () => globalShortcut.unregisterAll());
 // The app deliberately outlives its windows: reminders keep working from the tray.
 app.on('window-all-closed', () => { if (!prefs.keepRunning) app.quit(); });

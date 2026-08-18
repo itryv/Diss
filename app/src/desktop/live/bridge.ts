@@ -7,6 +7,7 @@ export interface MeetingState {
   cameraOff: boolean;
   speaker: string;
   peers: number;
+  link: string;
 }
 
 export interface DesktopPrefs {
@@ -26,6 +27,9 @@ export interface CaptureSource {
   thumbnail: string | null;
 }
 
+export interface CaptureIntent { audio: boolean; audioOnly: boolean }
+export interface MiniFrame { dataUrl: string | null; fit: 'cover' | 'contain'; name?: string }
+
 export type PermissionKind = 'camera' | 'microphone' | 'screen';
 /** Mirrors Electron's getMediaAccessStatus vocabulary. */
 export type PermissionState = 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown';
@@ -38,6 +42,7 @@ export interface DissBridge {
   platform: string;
   systemAudio: boolean;
   info: () => Promise<{ platform: string; version: string; electron: string; prefs: DesktopPrefs; meeting: MeetingState }>;
+  ready: () => Promise<boolean>;
   setPrefs: (patch: Partial<DesktopPrefs>) => Promise<DesktopPrefs>;
   quit: () => Promise<boolean>;
   setMeeting: (patch: Partial<MeetingState>) => Promise<MeetingState>;
@@ -47,11 +52,17 @@ export interface DissBridge {
     hide: () => Promise<boolean>;
     expand: () => Promise<boolean>;
     resize: (width: number, height: number) => Promise<boolean>;
+    setFrame: (frame: MiniFrame) => Promise<boolean>;
+    onFrame: (cb: (frame: MiniFrame) => void) => () => void;
   };
   tray: { hide: () => Promise<boolean>; resize: (height: number) => Promise<boolean> };
   showMain: () => Promise<boolean>;
   notify: (opts: { title?: string; body?: string; action?: ShortcutName }) => Promise<boolean>;
   getSources: (type?: 'screen' | 'window') => Promise<CaptureSource[]>;
+  capture: {
+    setIntent: (intent: CaptureIntent) => Promise<CaptureIntent>;
+    intent: () => Promise<CaptureIntent>;
+  };
   permissions: {
     status: () => Promise<PermissionStatuses>;
     request: (kind: 'camera' | 'microphone') => Promise<PermissionState>;

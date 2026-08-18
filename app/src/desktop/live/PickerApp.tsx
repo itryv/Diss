@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { bridge } from './bridge';
-import type { CaptureSource } from './bridge';
+import type { CaptureIntent, CaptureSource } from './bridge';
 
 const DISPLAY = "'Bricolage Grotesque',sans-serif";
 
@@ -29,7 +29,7 @@ export function PickerApp() {
   const [sources, setSources] = useState<CaptureSource[] | null>(null);
   const [tab, setTab] = useState<'screen' | 'window'>('screen');
   const [selected, setSelected] = useState<string | null>(null);
-  const [withAudio, setWithAudio] = useState(false);
+  const [intent, setIntent] = useState<CaptureIntent>({ audio: false, audioOnly: false });
   const [warn, setWarn] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadingWindows, setLoadingWindows] = useState(true);
@@ -43,6 +43,8 @@ export function PickerApp() {
     let live = true;
     (async () => {
       try {
+        const requested = await api.capture.intent();
+        if (live) setIntent(requested);
         const screens = await api.getSources('screen');
         if (!live) return;
         setSources(screens);
@@ -115,7 +117,7 @@ export function PickerApp() {
           {shown.map(s => {
             const on = selected === s.id;
             return (
-              <div key={s.id} onClick={() => setSelected(s.id)} onDoubleClick={() => api?.picker.choose({ id: s.id, withAudio })} style={{ cursor: 'pointer' }}>
+              <div key={s.id} onClick={() => setSelected(s.id)} onDoubleClick={() => api?.picker.choose({ id: s.id, withAudio: intent.audio })} style={{ cursor: 'pointer' }}>
                 <div style={{ aspectRatio: '16/10', borderRadius: 12, background: '#14110f', border: `2px solid ${on ? '#f08b5f' : '#2e2822'}`, position: 'relative', overflow: 'hidden' }}>
                   {s.thumbnail ? (
                     <img src={s.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
@@ -147,24 +149,17 @@ export function PickerApp() {
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 22px', borderTop: '1px solid #2e2822', background: '#1e1a16' }}>
-        <div
-          onClick={() => !audioBlocked && setWithAudio(v => !v)}
-          title={audioBlocked ? 'Sharing computer sound requires macOS 13 or later' : undefined}
-          style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: audioBlocked ? 'not-allowed' : 'pointer', flex: 1, opacity: audioBlocked ? 0.55 : 1 }}
-        >
-          <span style={{ width: 38, height: 22, borderRadius: 99, background: withAudio ? '#f08b5f' : '#3a332b', position: 'relative', transition: 'background .18s ease', flex: 'none' }}>
-            <span style={{ position: 'absolute', top: 3, left: 3, width: 16, height: 16, borderRadius: '50%', background: '#f4eee5', transform: `translateX(${withAudio ? 16 : 0}px)`, transition: 'transform .18s ease' }} />
-          </span>
-          <span style={{ fontSize: 13.5, fontWeight: 600 }}>Share audio</span>
-          <span style={{ fontSize: 12, color: '#6f665b' }}>
-            {audioBlocked ? 'requires macOS 13 or later' : 'system audio'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, opacity: audioBlocked && intent.audio ? 0.55 : 1 }}>
+          <span style={{ width: 9, height: 9, borderRadius: '50%', background: intent.audio ? '#6fbf8f' : '#6f665b', flex: 'none' }} />
+          <span style={{ fontSize: 13.5, fontWeight: 600 }}>
+            {intent.audioOnly ? 'Computer audio only' : intent.audio ? 'Screen and computer audio' : 'Screen only'}
           </span>
         </div>
         <button className="hv-fg" onClick={() => api?.picker.cancel()} style={{ background: 'none', border: '1px solid #3a332b', color: '#a3988a', borderRadius: 11, padding: '10px 18px', fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
         <button
           className="hv-primary"
           disabled={!canShare}
-          onClick={() => selected && api?.picker.choose({ id: selected, withAudio })}
+          onClick={() => selected && api?.picker.choose({ id: selected, withAudio: intent.audio })}
           style={{ background: canShare ? '#f08b5f' : '#2e2822', color: canShare ? '#241209' : '#6f665b', border: 'none', borderRadius: 11, padding: '10px 22px', fontSize: 13.5, fontWeight: 700, cursor: canShare ? 'pointer' : 'default' }}
         >Share</button>
       </div>

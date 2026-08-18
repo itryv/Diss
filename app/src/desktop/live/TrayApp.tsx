@@ -26,7 +26,7 @@ function MenuRow({ label, shortcut, onClick }: { label: string; shortcut?: strin
 /** The real menu-bar / system-tray panel, in its own frameless window. */
 export function TrayApp() {
   const api = bridge();
-  const [m, setM] = useState<MeetingState>({ active: false, title: '', muted: false, cameraOff: false, speaker: '', peers: 0 });
+  const [m, setM] = useState<MeetingState>({ active: false, title: '', muted: false, cameraOff: false, speaker: '', peers: 0, link: '' });
   const mac = api?.platform === 'darwin';
   const mod = mac ? '⌘' : 'Ctrl+';
   const rootRef = useRef<HTMLDivElement>(null);
@@ -80,7 +80,7 @@ export function TrayApp() {
       <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
         <QuickAction icon={<DPlus size={16} color="#f08b5f" />} label="New" onClick={run('new-meeting')} />
         <QuickAction icon={<DLink size={16} color="#f08b5f" />} label="Join code" onClick={run('join')} />
-        <QuickAction icon={<DCopy size={16} color="#f08b5f" />} label="Copy link" onClick={() => { navigator.clipboard?.writeText('https://diss.app/'); api?.tray.hide(); }} />
+        <QuickAction icon={<DCopy size={16} color={m.link ? '#f08b5f' : '#6f665b'} />} label={m.link ? 'Copy link' : 'No link'} onClick={() => { if (m.link) navigator.clipboard?.writeText(m.link); api?.tray.hide(); }} />
       </div>
 
       <div style={{ height: 1, background: '#3a332b', margin: '14px 4px 8px' }} />

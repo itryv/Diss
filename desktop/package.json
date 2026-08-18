@@ -10,6 +10,7 @@
     "start": "electron .",
     "dev": "DISS_DEV_URL=http://localhost:5173 electron .",
     "selftest": "DISS_SELFTEST=1 DISS_DEV_URL=http://localhost:5173 electron .",
+    "audio-smoke": "DISS_AUDIO_SMOKE=1 electron .",
     "icon": "node scripts/make-icon.js",
     "prepack:renderer": "npm --prefix ../app run build -- --base=./ && rm -rf renderer && cp -R ../app/dist renderer",
     "pack": "npm run icon && npm run prepack:renderer && electron-builder --dir",
@@ -23,6 +24,7 @@
       "output": "dist",
       "buildResources": "build"
     },
+    "afterPack": "scripts/after-pack.js",
     "files": [
       "main.js",
       "preload.js",
@@ -51,6 +53,7 @@
       ],
       "extendInfo": {
         "NSCameraUsageDescription": "Diss needs your camera so people in the meeting can see you.",
+        "NSCameraUseContinuityCameraDeviceType": true,
         "NSMicrophoneUsageDescription": "Diss needs your microphone so people in the meeting can hear you.",
         "NSAudioCaptureUsageDescription": "Diss needs access to system audio when you choose to share computer sound in a meeting."
       },

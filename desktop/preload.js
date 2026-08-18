@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('diss', {
     || (process.platform === 'darwin' && Number(process.getSystemVersion().split('.')[0]) >= 13),
 
   info: () => ipcRenderer.invoke('app:info'),
+  ready: () => ipcRenderer.invoke('renderer:ready'),
   setPrefs: patch => ipcRenderer.invoke('prefs:set', patch),
   quit: () => ipcRenderer.invoke('app:quit'),
 
@@ -42,6 +43,8 @@ contextBridge.exposeInMainWorld('diss', {
     hide: () => ipcRenderer.invoke('mini:hide'),
     expand: () => ipcRenderer.invoke('mini:expand'),
     resize: (width, height) => ipcRenderer.invoke('mini:resize', { width, height }),
+    setFrame: frame => ipcRenderer.invoke('mini:frame', frame),
+    onFrame: cb => on('mini:frame', cb),
   },
 
   tray: {
@@ -53,6 +56,10 @@ contextBridge.exposeInMainWorld('diss', {
 
   /** Real desktopCapturer sources, thumbnails included. */
   getSources: type => ipcRenderer.invoke('capture:sources', type),
+  capture: {
+    setIntent: intent => ipcRenderer.invoke('capture:set-intent', intent),
+    intent: () => ipcRenderer.invoke('capture:intent'),
+  },
 
   permissions: {
     /** Read camera/mic/screen status without prompting. */

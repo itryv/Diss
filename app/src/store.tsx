@@ -23,7 +23,7 @@ import { api, ApiError, extractCode, meetingLink } from './api';
 import type { Breakout, Meeting, ModerateAction, TokenResponse, User, WaitingGuest } from './api';
 import { applySinkId, canCaptureDisplayAudio, canSelectSpeaker, listDevices, playTestTone } from './media';
 import { preflightMedia } from './desktop/live/permissions';
-import { canCaptureNativeSystemAudio, isDesktopApp } from './desktop/live/bridge';
+import { bridge, canCaptureNativeSystemAudio, isDesktopApp } from './desktop/live/bridge';
 import type { PermissionKind } from './desktop/live/bridge';
 import type { DeviceLists } from './media';
 import {
@@ -1264,6 +1264,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const lp = room.localParticipant;
       try {
+        if (isDesktopApp()) {
+          await bridge()?.capture.setIntent({ audio: mode !== 'screen', audioOnly: mode === 'audio' });
+        }
         if (mode === 'audio') {
           // getDisplayMedia always needs a surface; we publish only its audio and
           // drop the video immediately, so nobody sees a picture.
@@ -1277,7 +1280,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           tracks.filter(t => t !== audio).forEach(t => { t.stop(); });
           if (!audio) {
             toast(isDesktopApp()
-              ? 'No computer sound was shared — turn on “Share audio” in the picker and try again'
+              ? 'No computer sound was captured — check Screen & System Audio Recording permission and try again'
               : 'No computer sound was shared — turn on “Share tab audio” in the picker and try again');
             return;
           }
@@ -1298,7 +1301,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         sync();
         if (mode === 'screen-audio' && !gotAudio) {
           toast(isDesktopApp()
-            ? 'You’re sharing — but no sound came through. Turn on “Share audio” in the picker to include it.'
+            ? 'You’re sharing — but no sound came through. Check Screen & System Audio Recording permission and try again.'
             : 'You’re sharing — but no sound came through. Turn on “Share tab audio” in the picker to include it.');
         } else {
           toast(gotAudio

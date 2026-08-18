@@ -30,7 +30,12 @@ That builds the renderer with relative asset paths, generates the icon, and writ
 npm run selftest
 ```
 
-Boots the app, exercises every native path, captures each real window to `selftest-out/*.png`, and exits non-zero on failure (21 checks). For a packaged build, `DISS_SMOKE=1 ./dist/mac/Diss.app/Contents/MacOS/Diss` prints a startup health report and exits.
+Boots the app, exercises every native path, captures each real window to `selftest-out/*.png`, and exits non-zero on failure. For a packaged build, `DISS_SMOKE=1 ./dist/mac/Diss.app/Contents/MacOS/Diss` prints a startup health report and exits.
+
+To validate native computer audio through the exact capture path used in a
+meeting, grant Screen & System Audio Recording permission and run
+`npm run audio-smoke`. It auto-selects the first screen, prints the returned
+audio/video track state, and exits non-zero if no live system-audio track arrives.
 
 ## The backend
 
@@ -160,12 +165,11 @@ with `tccutil reset Camera app.diss.desktop` (and `Microphone`) before retesting
 frontmost *application* on macOS — the window appears while the menu bar at the top
 of the screen still belongs to whatever was active before. Every real window goes
 through `activate()`, which calls `app.focus({ steal: true })`. The tray panel is
-the exception: it is an `NSPanel` (`type: 'panel'`) so it can appear without
-stealing activation, the way menu-bar apps behave.
+the exception: it uses `showInactive()` so it can appear without stealing
+activation, the way menu-bar apps behave.
 
 ## Known gaps
 
 - **Public preview is unsigned.** The v1.0.0 DMGs are downloadable from the Diss site, but no Developer ID identity is installed yet, so they are not notarized and macOS warns on first open. A stable release needs a Developer ID certificate plus notarization credentials.
 - **Preferences are in-memory.** The Settings → Desktop toggles round-trip through IPC but reset on quit; they need a small store next.
 - **Windows is untested on hardware.** The code paths are there (tray flyout placement, `Ctrl` accelerators, NSIS target) but have only run on macOS.
-- **Fonts load from Google Fonts,** so a fully offline launch falls back to system faces. Bundling them is a small follow-up.

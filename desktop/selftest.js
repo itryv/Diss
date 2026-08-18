@@ -182,7 +182,14 @@ module.exports = function selftest(ctx) {
       log('Info.plist carries usage strings',
         info.includes('NSCameraUsageDescription')
           && info.includes('NSMicrophoneUsageDescription')
-          && info.includes('NSAudioCaptureUsageDescription'));
+          && info.includes('NSAudioCaptureUsageDescription')
+          && info.includes('NSCameraUseContinuityCameraDeviceType'));
+      const frameworkDir = path.join(appPath, 'Contents', 'Frameworks');
+      const helperPlists = fs.readdirSync(frameworkDir)
+        .filter(name => name.includes(' Helper') && name.endsWith('.app'))
+        .map(name => path.join(frameworkDir, name, 'Contents', 'Info.plist'));
+      log('camera helpers declare Continuity Camera support', helperPlists.length > 0
+        && helperPlists.every(file => fs.readFileSync(file, 'utf8').includes('NSCameraUseContinuityCameraDeviceType')));
     }
 
     // 16a. The Permissions window renders and offers an ask path.

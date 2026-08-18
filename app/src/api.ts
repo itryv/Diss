@@ -372,5 +372,8 @@ export function extractCode(raw: string): string | null {
 
 /** Shareable link for a meeting code. */
 export function meetingLink(code: string): string {
-  return `${window.location.origin}/?join=${code}`;
+  // The installed app is served from a private loopback origin. Invite links
+  // must point at the public site so another person can actually open them.
+  const origin = window.diss?.isDesktop ? 'https://diss.remilekun.dev' : window.location.origin;
+  return `${origin}/?join=${code}`;
 }
