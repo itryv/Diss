@@ -1403,6 +1403,65 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
     endedAt: row.ended_at,
   });
 
+  /**
+   * End the meeting for everyone — the whole meeting, breakouts included.
+   *
+   * The client used to do this by looping over its own participant list and
+   * removing each one, which could only ever reach the room the host happened
+   * to be standing in. Anyone in a breakout was not in that list, and the
+   * remove would have targeted the wrong room anyway, so they were bounced back
+   * into the main room by their own poll and left sitting there — mic and
+   * camera live — in a meeting the host believed they had ended.
+   *
+   * `baseRoomCode` matches `<code>` and every `<code>__b<idx>`, so deleting
+   * what it returns ends all of them at once, server-side, in one call.
+   */
+  app.post<{ Params: { code: string } }>(
+    "/api/meetings/:code/end",
+    {
+      ...perRoute(60),
+      schema: {
+        params: {
+          type: "object",
+          required: ["code"],
+          properties: { code: { type: "string", minLength: 1, maxLength: 100 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const meeting = findMeetingByCode(db, request.params.code);
+      if (!meeting) return reply.status(404).send({ error: "meeting not found" });
+      const user = requireUser(request);
+      if (!user) return reply.status(401).send({ error: "not authenticated" });
+      // Ending for everyone is the host's call alone, unlike the other
+      // moderation actions a co-host may take.
+      if (meeting.host_user_id !== user.id) {
+        return reply.status(403).send({ error: "only the host can end the meeting" });
+      }
+
+      // Mark breakouts closed first so anyone mid-reconnect does not get handed
+      // a token for a room that is about to disappear.
+      db.prepare(
+        "UPDATE breakouts SET closed_at = ? WHERE meeting_id = ? AND closed_at IS NULL",
+      ).run(new Date().toISOString(), meeting.id);
+
+      const live = await listLiveRooms();
+      if (!live.reachable) {
+        return reply.status(502).send({ error: live.error ?? "LiveKit server unreachable" });
+      }
+      const rooms = live.rooms.filter((r) => baseRoomCode(r.name) === meeting.code);
+      try {
+        for (const room of rooms) {
+          await withTimeout(roomService().deleteRoom(room.name), "LiveKit deleteRoom");
+        }
+      } catch (err) {
+        app.log.warn({ err }, "host meeting end failed");
+        return reply.status(502).send({ error: livekitErrorMessage(err) });
+      }
+      return reply.status(200).send({ rooms: rooms.map((r) => r.name) });
+    },
+  );
+
   app.post<{ Params: { code: string }; Body: { action: "start" | "stop" } }>(
     "/api/meetings/:code/recording",
     {

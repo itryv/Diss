@@ -1301,14 +1301,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const st = ref.current;
       const code = st.meeting?.code;
       if (code && st.isHost) {
-        // Close the side rooms first: ending the meeting must not leave people
-        // talking to each other in a breakout nobody is coming back to.
-        if (st.breakoutsOpen) {
-          publishJson('breakout', { action: 'close', ts: Date.now() });
-          await api.closeBreakouts(code).catch(() => {});
+        // One server call ends every room for this meeting. Removing peers one
+        // by one from the client could only reach whichever room the host was
+        // standing in, so anyone in a breakout stayed in the call.
+        if (st.breakoutsOpen) publishJson('breakout', { action: 'close', ts: Date.now() });
+        try {
+          await api.endMeeting(code);
+        } catch (e) {
+          toast(errMsg(e));
+          return;
         }
-        const remotes = st.peers.filter(p => !p.isLocal);
-        await Promise.allSettled(remotes.map(p => api.moderate(code, 'remove', p.identity)));
       }
       leaveMeeting('ended');
     };

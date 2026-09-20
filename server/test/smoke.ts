@@ -1016,6 +1016,19 @@ try {
     ok("recording file/delete for unknown id return 404");
   }
 
+  // --- end for all ---
+  {
+    const nobody = await api("POST", `/api/meetings/${instant.code}/end`);
+    assert.equal(nobody.status, 401);
+    // A co-host may mute and remove, but ending the whole meeting is the
+    // host's call alone.
+    const notHost = await api("POST", `/api/meetings/${instant.code}/end`, member);
+    assert.equal(notHost.status, 403);
+    const missing = await api("POST", "/api/meetings/zzz-zzzz-zzz/end", host);
+    assert.equal(missing.status, 404);
+    ok("end-for-all is host-only and 404s on an unknown code");
+  }
+
   // --- delete ---
   {
     const r = await api("DELETE", `/api/meetings/${scheduled.id}`, host);

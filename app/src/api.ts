@@ -303,6 +303,10 @@ export const api = {
     req<{ breakouts: Breakout[]; open: boolean }>(
       `/meetings/${encodeURIComponent(code)}/breakouts${qs({ chatToken })}`,
     ),
+  /** Host-only: end the meeting for everyone, breakout rooms included. */
+  endMeeting: (code: string) =>
+    req<{ rooms: string[] }>(`/meetings/${encodeURIComponent(code)}/end`, { method: 'POST' }),
+
   /** `idx` is host-only: visit any room. Everyone else gets their own, or a 404. */
   breakoutToken: (code: string, chatToken: string, idx?: number) =>
     req<BreakoutToken>(`/meetings/${encodeURIComponent(code)}/breakouts/token`, {
