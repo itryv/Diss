@@ -14,12 +14,17 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DATA_DIR="${BACKUP_DATA_DIR:-$HERE/data/server}"
-OUT_DIR="${BACKUP_OUT_DIR:-$HERE/data/backups}"
+# Must live under data/server, because that is what is bind-mounted into the
+# container as /data — the path VACUUM INTO writes to is a container path.
+OUT_DIR="${BACKUP_OUT_DIR:-$HERE/data/server/backups}"
 KEEP_DAYS="${BACKUP_KEEP_DAYS:-14}"
 SERVICE="${BACKUP_SERVICE:-diss-diss-server-1}"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 
-mkdir -p "$OUT_DIR"
+# data/server is owned by root (the container writes there), so this needs sudo
+# on first run. Group-writable so the operator can read backups out afterwards.
+sudo mkdir -p "$OUT_DIR"
+sudo chmod 0775 "$OUT_DIR"
 
 # `cp` of a live SQLite database in WAL mode produces a file that is missing
 # everything still in the -wal, i.e. a silently truncated backup. VACUUM INTO
