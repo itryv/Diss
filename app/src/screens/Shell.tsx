@@ -7,6 +7,8 @@ import type { Meeting, Recording } from '../api';
 import { Ic } from '../icons';
 import { PermissionsPanel } from '../desktop/live/PermissionsPanel';
 import { isDesktopApp } from '../desktop/live/bridge';
+import { downloadIcs, googleCalendarUrl, outlookCalendarUrl } from '../util';
+import type { CalendarEvent } from '../util';
 
 const inputStyle: React.CSSProperties = { width: '100%', background: '#1c1815', border: '1px solid #3a332b', borderRadius: 12, padding: '13px 14px', color: '#f4eee5', fontSize: 15, fontFamily: 'inherit', outline: 'none' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 13, fontWeight: 600, color: '#a3988a', marginBottom: 7 };
@@ -270,6 +272,21 @@ function Schedule() {
   );
 }
 
+/** A meeting in the shape the calendar helpers want. */
+function calEvent(m: Meeting, link: string): CalendarEvent {
+  return { title: m.title || 'Meeting', startsAt: m.startsAt, link, hostName: m.hostName };
+}
+
+/**
+ * Calendar sites must open in the real browser, never inside the app window —
+ * in the desktop build `window.open` would load Google inside Electron, where
+ * the person is not signed in and cannot safely sign in.
+ */
+function openCalendar(url: string): void {
+  if (window.diss?.isDesktop) { void window.diss.openExternal(url); return; }
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
 function SchedDone() {
   const app = useApp();
   const s = app.s;
@@ -291,9 +308,16 @@ function SchedDone() {
         <button className="hv-primary" onClick={app.copyLink} style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 11, padding: '12px 22px', fontWeight: 700, fontSize: 14.5, cursor: 'pointer', flexShrink: 0 }}>{s.copied ? 'Copied' : 'Copy link'}</button>
       </div>
       <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
-        <button className="hv-bg-2a" onClick={() => { if (m) navigator.clipboard?.writeText(`Join "${m.title}"\n${when}\n${link}`); }} style={secBtn}>Copy invitation</button>
-        <button className="hv-bg-2a" onClick={() => app.toast('Calendar export is coming soon')} style={secBtn}>Add to Google Calendar</button>
-        <button className="hv-bg-2a" onClick={() => app.toast('Calendar export is coming soon')} style={secBtn}>Add to Outlook</button>
+        <button className="hv-bg-2a" onClick={async () => {
+          if (!m) return;
+          try {
+            await navigator.clipboard?.writeText(`Join "${m.title}"\n${when}\n${link}`);
+            app.toast('Invitation copied');
+          } catch { app.toast('Copy failed — the link is ' + link, { sticky: true }); }
+        }} style={secBtn}>Copy invitation</button>
+        <button className="hv-bg-2a" onClick={() => m && openCalendar(googleCalendarUrl(calEvent(m, link)))} style={secBtn}>Add to Google Calendar</button>
+        <button className="hv-bg-2a" onClick={() => m && openCalendar(outlookCalendarUrl(calEvent(m, link)))} style={secBtn}>Add to Outlook</button>
+        <button className="hv-bg-2a" onClick={() => m && downloadIcs(calEvent(m, link), `${m.code}.ics`)} style={secBtn}>Download .ics</button>
       </div>
       <button onClick={() => app.go('dash')} style={{ marginTop: 26, background: 'none', border: 'none', color: '#f0a97f', fontWeight: 600, fontSize: 14.5, cursor: 'pointer', padding: 0 }}>Done → back to home</button>
     </div>

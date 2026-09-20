@@ -183,3 +183,113 @@ export function resolveMentions(text: string, targets: MentionTarget[]): string[
 /** Does this message ping me? `@all` pings everyone. */
 export const mentionsMe = (mentions: string[] | undefined, identity: string): boolean =>
   !!mentions && (mentions.includes(MENTION_ALL) || (!!identity && mentions.includes(identity)));
+
+// ── calendar export ─────────────────────────────────────────────────────────
+
+/** A scheduled meeting, in the shape the calendar helpers below need. */
+export interface CalendarEvent {
+  title: string;
+  /** ISO start. Meetings with no start time are treated as starting now. */
+  startsAt: string | null;
+  link: string;
+  hostName?: string;
+  /** Minutes. Meetings have no stored duration, so callers pass the default. */
+  durationMinutes?: number;
+}
+
+const DEFAULT_DURATION_MINUTES = 60;
+
+const eventWindow = (e: CalendarEvent): { start: Date; end: Date } => {
+  const start = e.startsAt ? new Date(e.startsAt) : new Date();
+  const end = new Date(start.getTime() + (e.durationMinutes ?? DEFAULT_DURATION_MINUTES) * 60_000);
+  return { start, end };
+};
+
+/** `20260920T143000Z` — the only timestamp format iCalendar and Google agree on. */
+const stampUTC = (d: Date): string => `${d.toISOString().replace(/[-:]/g, '').split('.')[0]}Z`;
+
+const description = (e: CalendarEvent): string =>
+  `Join the meeting: ${e.link}${e.hostName ? `\n\nHosted by ${e.hostName}` : ''}`;
+
+/**
+ * RFC 5545 requires CRLF line endings and folding past 75 octets. Escaping
+ * matters too: an unescaped comma or semicolon in a title silently truncates
+ * the field, so a meeting called "Design, review" would import as "Design".
+ */
+const icsEscape = (text: string): string =>
+  text.replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+
+const fold = (line: string): string => {
+  if (line.length <= 75) return line;
+  const parts: string[] = [line.slice(0, 75)];
+  for (let i = 75; i < line.length; i += 74) parts.push(` ${line.slice(i, i + 74)}`);
+  return parts.join('\r\n');
+};
+
+/** An .ics file body for one meeting — what Apple Calendar and Outlook import. */
+export function buildIcs(e: CalendarEvent): string {
+  const { start, end } = eventWindow(e);
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Diss//Meetings//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    // Stable per link+start so re-importing updates the event instead of
+    // creating a duplicate alongside it.
+    `UID:${encodeURIComponent(e.link)}-${stampUTC(start)}@diss`,
+    `DTSTAMP:${stampUTC(new Date())}`,
+    `DTSTART:${stampUTC(start)}`,
+    `DTEND:${stampUTC(end)}`,
+    `SUMMARY:${icsEscape(e.title)}`,
+    `DESCRIPTION:${icsEscape(description(e))}`,
+    `LOCATION:${icsEscape(e.link)}`,
+    `URL:${icsEscape(e.link)}`,
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ];
+  return lines.map(fold).join('\r\n');
+}
+
+/** Google Calendar's prefilled-event URL. */
+export function googleCalendarUrl(e: CalendarEvent): string {
+  const { start, end } = eventWindow(e);
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: e.title,
+    dates: `${stampUTC(start)}/${stampUTC(end)}`,
+    details: description(e),
+    location: e.link,
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+/** Outlook Web's prefilled-event URL. */
+export function outlookCalendarUrl(e: CalendarEvent): string {
+  const { start, end } = eventWindow(e);
+  const params = new URLSearchParams({
+    path: '/calendar/action/compose',
+    rru: 'addevent',
+    subject: e.title,
+    startdt: start.toISOString(),
+    enddt: end.toISOString(),
+    body: description(e),
+    location: e.link,
+  });
+  return `https://outlook.live.com/calendar/0/deeplink/compose?${params.toString()}`;
+}
+
+/** Hand the browser an .ics file to save. */
+export function downloadIcs(e: CalendarEvent, fileName = 'meeting.ics'): void {
+  const blob = new Blob([buildIcs(e)], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoking immediately can cancel the download in some browsers.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

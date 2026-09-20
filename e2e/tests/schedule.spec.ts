@@ -49,5 +49,17 @@ test.describe('scheduling', () => {
     const after = (await (await page.request.get(`/api/meetings/${meeting.code}`)).json()).meeting;
     expect(after.allowChat).toBe(false);
     expect(after.waitingRoom).toBe(true);
+
+    // Calendar export used to be two buttons that only toasted "coming soon".
+    const download = page.waitForEvent('download');
+    await page.getByRole('button', { name: /download \.ics/i }).click();
+    const file = await download;
+    expect(file.suggestedFilename()).toBe(`${meeting.code}.ics`);
+    const body = await (await import('node:fs/promises')).readFile(await file.path(), 'utf8');
+    expect(body).toContain('BEGIN:VCALENDAR');
+    expect(body).toContain('SUMMARY:Next week sync');
+    expect(body).toContain(meeting.code);
+    // RFC 5545 requires CRLF; a calendar app will reject LF-only.
+    expect(body).toContain('\r\n');
   });
 });
