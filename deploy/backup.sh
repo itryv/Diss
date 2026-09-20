@@ -23,8 +23,11 @@ STAMP="$(date -u +%Y%m%d-%H%M%S)"
 
 # data/server is owned by root (the container writes there), so this needs sudo
 # on first run. Group-writable so the operator can read backups out afterwards.
+# Owned by the operator, not root: the container writes here as root (which
+# ignores permissions anyway), but gzip, rsync and retention all run as the
+# person, and they need to create and delete files in this directory.
 sudo mkdir -p "$OUT_DIR"
-sudo chmod 0775 "$OUT_DIR"
+sudo chown "$(id -u):$(id -g)" "$OUT_DIR"
 
 # `cp` of a live SQLite database in WAL mode produces a file that is missing
 # everything still in the -wal, i.e. a silently truncated backup. VACUUM INTO
