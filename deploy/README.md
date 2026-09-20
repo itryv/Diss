@@ -180,8 +180,12 @@ repository* and the host silently drifts from `main` — which is how a stale
 frontend bundle survives a "deploy". Convert it once, in place:
 
 ```bash
-cd <repo> && git init -b main && git remote add origin <REPO_URL> && git fetch origin main && git reset origin/main
+cd <repo> && git init -b main && git remote add origin <REPO_URL> && git fetch origin main && git reset origin/main && git branch --set-upstream-to=origin/main main
 ```
+
+The `--set-upstream-to` is not optional: a branch created this way has no
+tracking information, so a later bare `git pull` exits with *There is no
+tracking information for the current branch* and the host stays behind.
 
 `git reset` without `--hard` moves `HEAD` and the index only, leaving every
 file on disk untouched, so `git status` then shows exactly how far the host had
