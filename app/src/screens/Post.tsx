@@ -5,16 +5,26 @@ import { fmtElapsed } from '../util';
 export function Post() {
   const app = useApp();
   const s = app.s;
-  const ended = s.postKind === 'ended';
+  // Only a deliberate ending hides Rejoin. A dropped connection almost always
+  // means the meeting is still running, so that is exactly when the button has
+  // to be there.
+  const COPY = {
+    left: ['You left the meeting', 'Left by accident? Happens to the best of us.'],
+    ended: ['The host ended the meeting', 'Thanks for coming — see you at the next one.'],
+    removed: ['You were removed from the meeting', 'The host ended your participation.'],
+    dropped: ['You lost connection to the meeting', "Your network dropped out. The meeting may still be running — you can rejoin."],
+  } as const;
+  const [title, blurb] = COPY[s.postKind] ?? COPY.left;
+  const canRejoin = s.postKind === 'left' || s.postKind === 'dropped';
   const ratedLow = s.rating > 0 && s.rating < 4 && !s.ratedDone;
   return (
     <section style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 26, textAlign: 'center', padding: 32 }}>
       <div>
-        <h1 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 38, margin: '0 0 8px' }}>{ended ? 'The host ended the meeting' : 'You left the meeting'}</h1>
-        <p style={{ color: '#a3988a', fontSize: 15.5, margin: 0 }}>{ended ? 'Thanks for coming — see you at the next one.' : 'Left by accident? Happens to the best of us.'}</p>
+        <h1 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 38, margin: '0 0 8px' }}>{title}</h1>
+        <p style={{ color: '#a3988a', fontSize: 15.5, margin: 0 }}>{blurb}</p>
       </div>
       <div style={{ display: 'flex', gap: 12 }}>
-        {!ended && s.meeting && (
+        {canRejoin && s.meeting && (
           <button className="hv-primary" onClick={() => app.go('lobby', { permState: 'prompt', joinError: null })} style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 13, padding: '14px 30px', fontWeight: 700, fontSize: 15.5, cursor: 'pointer' }}>Rejoin</button>
         )}
         <button className="hv-bg-2a" onClick={() => app.go(s.user ? 'dash' : 'landing')} style={{ background: '#241f1a', border: '1px solid #362f28', color: '#f4eee5', borderRadius: 13, padding: '14px 26px', fontWeight: 600, fontSize: 15, cursor: 'pointer' }}>Back to home</button>

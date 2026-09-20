@@ -61,9 +61,11 @@ test.describe('core meeting flow: host + guest', () => {
     await openPeoplePanel(pageA);
     await pageA.getByRole('button', { name: /remove/i }).first().click();
 
-    // B is disconnected and sees the host-ended screen.
+    // B is disconnected and is told what actually happened. Being removed is not
+    // the same as the meeting ending, and it must not be reported as such — the
+    // post-call screen reads LiveKit's DisconnectReason to tell them apart.
     await expect(
-      pageB.getByRole('heading', { name: 'The host ended the meeting' }),
+      pageB.getByRole('heading', { name: 'You were removed from the meeting' }),
     ).toBeVisible({ timeout: 20_000 });
 
     await contextA.close();

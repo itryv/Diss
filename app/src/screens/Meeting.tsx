@@ -1179,16 +1179,20 @@ function ControlBar() {
 
   useEffect(() => {
     if (deviceOpen) app.refreshDevices();
-  }, [deviceOpen, app]);
+    // `app` is deliberately not a dependency: the context value is rebuilt on
+    // every patch and refreshDevices patches, so including it spins this effect
+    // in a tight loop for as long as the menu is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceOpen]);
 
   /** Picking the mode you're already in stops the share; picking another swaps to it. */
   const pickShare = async (m: ShareMode) => {
     setShareOpen(false);
     if (s.sharing) {
-      await app.toggleShare(m); // any mode stops the current share
+      await app.toggleShare(m, 'stop'); // any mode stops the current share
       if (m === shareMode) return;
     }
-    await app.toggleShare(m);
+    await app.toggleShare(m, 'start');
   };
 
   const pipSupported = typeof document !== 'undefined' && document.pictureInPictureEnabled;
@@ -1495,7 +1499,12 @@ function ConnStats({ goodConn, connColor, narrow }: { goodConn: boolean; connCol
     collect();
     const t = window.setInterval(collect, 2000);
     return () => { alive = false; window.clearInterval(t); };
-  }, [app]);
+    // `app` is rebuilt on every patch, and the clock patches once a second, so
+    // depending on it tore down and recreated the interval before it could ever
+    // fire — turning a 2s sample into one per render and computing bitrate over
+    // millisecond windows, which is why the numbers jumped around.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const gathering = <span style={{ color: '#6f665b' }}>gathering…</span>;
   const row = (label: string, value: React.ReactNode) => (

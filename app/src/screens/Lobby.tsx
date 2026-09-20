@@ -16,7 +16,7 @@ export function AvControlButton({ kind, size = 48 }: { kind: 'mic' | 'cam'; size
   const on = kind === 'mic' ? s.lobbyMic : s.lobbyCam;
   const icon = kind === 'mic' ? (on ? 'mic' : 'micOff') : on ? 'video' : 'videoOff';
   const title = kind === 'mic' ? (on ? 'Mute' : 'Unmute') : on ? 'Turn camera off' : 'Turn camera on';
-  const toggle = () => app.patch(st => (kind === 'mic' ? { lobbyMic: !st.lobbyMic } : { lobbyCam: !st.lobbyCam }));
+  const toggle = () => (kind === 'mic' ? app.patch(st => ({ lobbyMic: !st.lobbyMic })) : app.setLobbyCam(!s.lobbyCam));
   return (
     <button onClick={toggle} title={title} style={{ width: size, height: size, borderRadius: '50%', background: on ? 'rgba(30,26,22,.8)' : 'rgba(201,74,56,.9)', border: `1px solid ${on ? '#3a332b' : '#c94a38'}`, color: '#f4eee5', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <Ic name={icon} size={18} />

@@ -2,6 +2,7 @@ import { createContext, lazy, Suspense, useContext, useEffect, useMemo, useReduc
 import type { ReactNode } from 'react';
 import {
   ConnectionQuality,
+  DisconnectReason,
   LocalAudioTrack,
   Room,
   RoomEvent,
@@ -55,6 +56,17 @@ const adminSurface: React.CSSProperties = {
 export type PermState = 'prompt' | 'granted' | 'denied' | 'nodevice' | 'busy';
 
 export type VideoQuality = 'auto' | 'high' | 'saver';
+
+/**
+ * Why the call ended, which decides what the post-call screen says and whether
+ * it offers Rejoin.
+ *
+ * `dropped` is the important one: losing the network is not the same as the
+ * host ending the meeting, and telling someone the meeting is over when it is
+ * still running — while hiding the one button that would get them back in — is
+ * worse than saying nothing.
+ */
+export type PostKind = 'left' | 'ended' | 'removed' | 'dropped';
 export type ShareMode = 'screen' | 'screen-audio' | 'audio';
 export type DeviceKind = 'mic' | 'cam' | 'speaker';
 
@@ -86,6 +98,25 @@ interface SpeechRecognitionLike {
   start: () => void; stop: () => void;
 }
 type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+/**
+ * Translate LiveKit's disconnect reason into what the person should be told.
+ *
+ * Anything we cannot attribute to a deliberate act — a signal close, a timeout,
+ * a media failure, the server going away — is a drop, not an ending. Those keep
+ * the Rejoin button, because the meeting is very probably still running.
+ */
+const postKindFor = (reason?: DisconnectReason): PostKind => {
+  switch (reason) {
+    case DisconnectReason.ROOM_DELETED:
+    case DisconnectReason.ROOM_CLOSED:
+      return 'ended';
+    case DisconnectReason.PARTICIPANT_REMOVED:
+      return 'removed';
+    default:
+      return 'dropped';
+  }
+};
 
 const speechCtor = (): SpeechRecognitionCtor | null => {
   const w = window as unknown as { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor };
@@ -260,7 +291,7 @@ export interface AppState {
   // grid pagination
   gridPage: number;
   // post
-  rating: number; issues: string[]; ratedDone: boolean; postKind: 'left' | 'ended';
+  rating: number; issues: string[]; ratedDone: boolean; postKind: PostKind;
   // proto switcher
   protoOpen: boolean; devParticipantCount: number; devRole: 'host' | 'guest';
 }
@@ -354,7 +385,7 @@ export interface Store {
   toggleMic: () => void;
   toggleCam: () => void;
   /** Called again while sharing (any mode) stops the share. Defaults to plain video sharing. */
-  toggleShare: (mode?: ShareMode) => Promise<void>;
+  toggleShare: (mode?: ShareMode, force?: 'start' | 'stop') => Promise<void>;
   toggleHand: () => void;
   sendReaction: (emoji: string) => void;
   togglePanel: (tab: 'chat' | 'people') => void;
@@ -403,7 +434,9 @@ export interface Store {
   setVideoQuality: (q: VideoQuality) => Promise<void>;
   testSpeaker: () => Promise<void>;
   allowAccess: () => Promise<void>;
-  copyLink: () => void;
+  /** Lobby camera on/off. Restarts the preview so the hardware is actually released. */
+  setLobbyCam: (on: boolean) => void;
+  copyLink: () => Promise<void>;
   wake: () => void;
   enterDevMeeting: () => void;
   streamRef: React.MutableRefObject<MediaStream | null>;
@@ -475,6 +508,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     /** Start (or restart) the lobby preview with the currently selected devices. */
     const startPreview = async (
       deviceOverride?: Partial<Record<DeviceKind, string | null>>,
+      // Same reason as `deviceOverride`: the camera toggle patches and restarts
+      // in one event turn, so the new value has to be carried in explicitly.
+      camOverride?: boolean,
     ): Promise<void> => {
       stopPreview();
       const st = ref.current;
@@ -489,17 +525,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // On macOS the OS decides before the browser does. Asking first means a TCC
       // block reports as 'denied' with a System Settings fix, instead of arriving
       // as the same NotAllowedError a dismissed browser prompt produces.
-      const pre = await preflightMedia({ audio: true, video: st.lobbyCam });
+      const wantCam = camOverride ?? st.lobbyCam;
+      const pre = await preflightMedia({ audio: true, video: wantCam });
       if (!pre.ok) { patch({ permState: 'denied', deniedPermissions: pre.denied }); return; }
       patch({ deniedPermissions: [] });
 
       const want = (id: string | null): MediaTrackConstraints | true =>
         id ? { deviceId: { exact: id } } : true;
+      // `wantCam` is honoured in the constraints themselves. Asking for video
+      // anyway would hold the camera open — indicator light and all — after the
+      // person has explicitly turned it off, and would turn a camera-only
+      // permission block into a dead end for someone whose mic works.
       const attempts: MediaStreamConstraints[] = [
-        { audio: want(micId), video: want(camId) },
+        { audio: want(micId), video: wantCam ? want(camId) : false },
         // Remembered device unplugged → fall back to whatever the system offers.
-        { audio: true, video: true },
+        { audio: true, video: wantCam },
       ];
+      // Distinguishes "no camera on this machine" from "the camera was blocked",
+      // so the audio-only fallback below can report the right thing.
+      let videoBlocked = false;
       for (const constraints of attempts) {
         try {
           const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -510,21 +554,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } catch (e) {
           const name = (e as DOMException | undefined)?.name;
           if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') continue;
-          if (name === 'NotAllowedError' || name === 'SecurityError') { patch({ permState: 'denied' }); return; }
+          // Video denied but audio allowed: fall through to the audio-only
+          // attempt below rather than showing the "everything is blocked" wall.
+          if (name === 'NotAllowedError' || name === 'SecurityError') {
+            if (!wantCam) { patch({ permState: 'denied' }); return; }
+            videoBlocked = true;
+            break;
+          }
           if (name === 'NotReadableError' || name === 'AbortError' || name === 'TrackStartError') { patch({ permState: 'busy' }); return; }
           if (name === 'NotFoundError' || name === 'DevicesNotFoundError') break;
           patch({ permState: 'denied' });
           return;
         }
       }
-      // No camera (or nothing matched): still try for audio so the mic meter works.
+      // No camera (or it was blocked): still try for audio so the mic meter works
+      // and the person can join and be heard.
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         streamRef.current = stream;
-        patch({ permState: 'nodevice', realCam: false });
+        patch({ permState: 'nodevice', realCam: false, joinError: null });
         await refreshDevices();
       } catch {
-        patch({ permState: 'nodevice', realCam: false });
+        // Audio failed too. If video was blocked this is a genuine permission
+        // wall, not a missing device — say so, or the fix we offer is wrong.
+        patch({ permState: videoBlocked ? 'denied' : 'nodevice', realCam: false });
       }
     };
 
@@ -824,7 +877,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (participant.isLocal) patch({ connQuality: quality });
         })
         .on(RoomEvent.DataReceived, onData)
-        .on(RoomEvent.Disconnected, () => {
+        .on(RoomEvent.Disconnected, reason => {
+          // `disconnect()` resolves asynchronously, so when we swap rooms — joining
+          // a breakout, coming back from one — the OLD room's Disconnected lands
+          // while the NEW one is already wired up and mid-connect. Acting on it
+          // then nulls the live room: the grid empties, the mic button stops
+          // doing anything and chat is silently dropped. Only the room that is
+          // still current gets to tear anything down.
+          if (roomRef.current !== room) return;
           roomRef.current = null;
           stopCaptionEngine();
           clearShareAudio();
@@ -837,7 +897,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           if (!leavingRef.current && ref.current.screen === 'meeting') {
             patch({
-              screen: 'post', postKind: 'ended', peers: [], panel: false, leaveOpen: false,
+              screen: 'post', postKind: postKindFor(reason), peers: [], panel: false, leaveOpen: false,
               reconnecting: false, sharing: false, hand: false, reactionsOpen: false, moreOpen: false,
               rating: 0, issues: [], ratedDone: false,
               recOn: false, recBusy: false, captionLines: [], waitingGuests: [], isCoHost: false, gridPage: 0,
@@ -854,7 +914,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       waitPollRef.current = undefined;
     };
 
-    const disconnectRoom = () => {
+    /**
+     * Leave the current room and wait for it to actually be gone.
+     *
+     * Awaiting matters when another room is about to take its place: LiveKit
+     * resolves `disconnect()` only after the leave is sent and the engine is
+     * closed, and anything we do before that races the old room's teardown.
+     * `wireRoom` guards against a stale Disconnected as well — both, because
+     * this is the path that silently breaks breakout rooms when it goes wrong.
+     */
+    const disconnectRoom = async () => {
       leavingRef.current = true;
       stopCaptionEngine();
       stopWaitingPoll();
@@ -862,7 +931,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const room = roomRef.current;
       roomRef.current = null;
       handRef.current = new Map();
-      room?.disconnect();
+      await room?.disconnect().catch(() => { /* already gone — the room is detached either way */ });
     };
 
     // ── auth ──────────────────────────────────────────────────────────────────
@@ -891,7 +960,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const signOut = async () => {
       try { await api.logout(); } catch { /* clearing locally regardless */ }
-      disconnectRoom();
+      await disconnectRoom();
       patch({ user: null, meetings: [], meeting: null, lobbyName: '' });
       go('landing');
     };
@@ -994,6 +1063,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       { token, url, identity, isHost, chatToken }: TokenResponse,
       breakout: BreakoutHere | null = null,
     ) => {
+      // Every caller is expected to have left the previous room first. If one
+      // ever does not, replacing roomRef would strand a live SFU session with
+      // published camera and mic — so tear it down rather than leak it.
+      if (roomRef.current) await disconnectRoom();
       const st = ref.current;
       // Moving between rooms mid-meeting: carry my live mic/camera state across
       // rather than re-applying the lobby's "join muted" preferences.
@@ -1091,17 +1164,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const startWaitingPoll = (code: string, waitingId: string) => {
       stopWaitingPoll();
+      // One request in flight at a time. On a slow link two ticks could
+      // otherwise both come back "admitted" and both connect, leaving a leaked
+      // room with live tracks and a duplicate identity in the meeting.
+      let inFlight = false;
+      /** Still the same person, still waiting? Must be re-checked after every await. */
+      const stillWaiting = () =>
+        ref.current.screen === 'waiting' && ref.current.waitingId === waitingId;
       waitPollRef.current = window.setInterval(async () => {
-        const st = ref.current;
-        if (st.screen !== 'waiting' || st.waitingId !== waitingId) { stopWaitingPoll(); return; }
+        if (inFlight) return;
+        if (!stillWaiting()) { stopWaitingPoll(); return; }
+        inFlight = true;
         try {
           const res = await api.waitingStatus(code, waitingId);
+          // Cancelling cannot abort a request that is already out. Without this
+          // re-check, hitting Leave just as the host admits you drags you into
+          // the call — camera and mic live — from the dashboard.
+          if (!stillWaiting()) { stopWaitingPoll(); return; }
           if (res.status === 'admitted') {
             stopWaitingPoll();
             try {
               await connectWithToken(res);
             } catch (e) {
-              disconnectRoom();
+              await disconnectRoom();
               patch({ screen: 'lobby', joinError: errMsg(e), joining: false, waitingId: null });
             }
           } else if (res.status === 'denied') {
@@ -1114,6 +1199,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             stopWaitingPoll();
             patch({ waitingDenied: true });
           }
+        } finally {
+          inFlight = false;
         }
       }, 2000);
     };
@@ -1156,7 +1243,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         await connectWithToken(resp);
       } catch (e) {
-        disconnectRoom();
+        await disconnectRoom();
         const msg = e instanceof ApiError && e.status === 423
           ? "This meeting is locked — the host isn't letting anyone else in right now."
           : errMsg(e);
@@ -1165,7 +1252,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     const leaveMeeting: Store['leaveMeeting'] = (kind) => {
-      disconnectRoom();
+      void disconnectRoom();
       mainTokenRef.current = null;
       patch({
         screen: 'post', postKind: kind, leaveOpen: false, panel: false,
@@ -1237,14 +1324,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       sync();
     };
 
-    const toggleShare = async (requested: ShareMode = 'screen') => {
+    /**
+     * `force` exists because a patch is not visible on `ref.current` until React
+     * has rendered, which is a macrotask away. Swapping share modes stops and
+     * then starts within one microtask chain, so a caller that re-read
+     * `ref.current.sharing` in between would still see the stale `true` and stop
+     * a second time instead of starting. Callers that know their intent say so.
+     */
+    const toggleShare = async (requested: ShareMode = 'screen', force?: 'start' | 'stop') => {
       const room = roomRef.current;
       if (!room) {
         // Dev preview of the meeting screen — no room to publish to.
         patch(st => ({ sharing: !st.sharing, shareHasAudio: false, shareAudioOnly: false }));
         return;
       }
-      if (ref.current.sharing) { await stopSharing(); return; }
+      const stop = force ? force === 'stop' : ref.current.sharing;
+      if (stop) { await stopSharing(); return; }
       if (!ref.current.canShare) {
         toast('The host has turned off screen sharing for participants');
         return;
@@ -1652,7 +1747,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       const here: BreakoutHere = { idx: breakoutIdxOf(grant.room) ?? idx ?? 0, name: grant.breakoutName };
       try {
-        disconnectRoom();
+        await disconnectRoom();
         await connectWithToken(
           { token: grant.token, url: grant.url, identity: st.identity, isHost: st.isHost, chatToken: st.chatToken },
           here,
@@ -1679,7 +1774,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       patch({ breakoutBusy: true, breakoutUi: false });
       try {
-        disconnectRoom();
+        await disconnectRoom();
         await connectWithToken(main, null);
         patch({ breakoutBusy: false });
         toast('Back in the main meeting');
@@ -1820,10 +1915,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       },
       allowAccess: startPreview,
-      copyLink: () => {
+      setLobbyCam: (on: boolean) => {
+        patch({ lobbyCam: on });
+        // Flipping the flag alone leaves the capture running: the preview goes
+        // to initials while the camera light stays on. Only restart once there
+        // is something to restart — before that, allowAccess picks it up.
+        if (streamRef.current) void startPreview(undefined, on);
+      },
+      copyLink: async () => {
         const code = ref.current.meeting?.code;
         if (!code) { toast('No meeting link yet'); return; }
-        navigator.clipboard?.writeText(meetingLink(code));
+        const link = meetingLink(code);
+        // writeText rejects on an unfocused document or a non-secure context.
+        // Claiming success then leaves the person pasting nothing, so show the
+        // link instead and let them copy it by hand.
+        try {
+          await navigator.clipboard?.writeText(link);
+        } catch {
+          toast(`Copy failed — the link is ${link}`, { sticky: true });
+          return;
+        }
         patch({ copied: true });
         window.setTimeout(() => patch({ copied: false }), 2000);
         if (ref.current.screen === 'meeting') toast('Invite link copied');
