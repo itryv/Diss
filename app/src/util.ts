@@ -217,7 +217,7 @@ const description = (e: CalendarEvent): string =>
  * the field, so a meeting called "Design, review" would import as "Design".
  */
 const icsEscape = (text: string): string =>
-  text.replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+  text.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
 
 const fold = (line: string): string => {
   if (line.length <= 75) return line;

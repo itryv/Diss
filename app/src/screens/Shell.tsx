@@ -5,6 +5,7 @@ import { DevicePicker } from './Lobby';
 import { api, meetingLink, recordingFileUrl } from '../api';
 import type { Meeting, Recording } from '../api';
 import { Ic } from '../icons';
+import { BackgroundPicker } from './BackgroundPicker';
 import { PermissionsPanel } from '../desktop/live/PermissionsPanel';
 import { isDesktopApp } from '../desktop/live/bridge';
 import { downloadIcs, googleCalendarUrl, outlookCalendarUrl } from '../util';
@@ -500,7 +501,12 @@ function Settings() {
           <ToggleRow label="Mute my mic when I join" on={s.joinMuted} onToggle={() => app.toggleJoinPref('muted')} />
           <ToggleRow label="Turn my camera off when I join" on={s.joinCamOff} onToggle={() => app.toggleJoinPref('camOff')} />
           <ToggleRow label="Noise suppression" on={s.nsOn} onToggle={app.toggleNs} />
-          {s.blurSupported && <ToggleRow label="Blur my background" on={s.blurOn} onToggle={app.toggleBlur} />}
+          {s.blurSupported && (
+            <div style={{ paddingTop: 6 }}>
+              <div style={{ fontSize: 14, color: '#c9beb0', marginBottom: 8 }}>Background</div>
+              <BackgroundPicker />
+            </div>
+          )}
         </div>
       )}
       {s.settingsTab === 'desktop' && (

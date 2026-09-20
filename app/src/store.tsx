@@ -20,6 +20,8 @@ import type {
   VideoPreset,
 } from 'livekit-client';
 import { BackgroundProcessor, supportsBackgroundProcessors } from '@livekit/track-processors';
+import { BACKGROUND_PRESETS, presetImage } from './backgrounds';
+import type { BackgroundId } from './backgrounds';
 import { api, ApiError, extractCode, meetingLink } from './api';
 import type { Breakout, Meeting, ModerateAction, TokenResponse, User, WaitingGuest } from './api';
 import { applySinkId, canCaptureDisplayAudio, canSelectSpeaker, listDevices, playTestTone } from './media';
@@ -139,6 +141,32 @@ const todayISO = (): string => {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+/** Remembered background effect. Unknown values fall back to no effect. */
+const storedBackground = (): BackgroundId => {
+  try {
+    const raw = localStorage.getItem('diss_bg');
+    const known: BackgroundId[] = ['none', 'blur', 'custom', ...BACKGROUND_PRESETS.map(p => p.id)];
+    if (raw && (known as string[]).includes(raw)) {
+      // A custom image cannot survive a reload — the object URL is gone — so
+      // remembering "custom" would leave the picker showing a background that
+      // is not applied. Fall back to blur, which is the closest intent.
+      return raw === 'custom' ? 'blur' : (raw as BackgroundId);
+    }
+  } catch { /* private mode */ }
+  return 'none';
+};
+
+/** The image URL for an effect, or null when the effect is blur / none. */
+const backgroundImage = (id: BackgroundId, customUrl: string | null): string | null => {
+  if (id === 'custom') return customUrl;
+  if (id === 'none' || id === 'blur') return null;
+  try {
+    return presetImage(id);
+  } catch {
+    return null;
+  }
 };
 
 const speechCtor = (): SpeechRecognitionCtor | null => {
@@ -300,7 +328,7 @@ export interface AppState {
   // captions
   captionsOn: boolean; captionLines: CaptionLine[];
   // media prefs (persisted)
-  blurOn: boolean; nsOn: boolean; blurSupported: boolean;
+  bgEffect: BackgroundId; bgCustomUrl: string | null; nsOn: boolean; blurSupported: boolean;
   joinMuted: boolean; joinCamOff: boolean;
   // real devices
   devices: DeviceLists;
@@ -348,7 +376,7 @@ const initial: AppState = {
   tileOrder: null,
   recOn: false, recBusy: false,
   captionsOn: false, captionLines: [],
-  blurOn: prefBool('diss_blur', false), nsOn: prefBool('diss_ns', true), blurSupported,
+  bgEffect: storedBackground(), bgCustomUrl: null, nsOn: prefBool('diss_ns', true), blurSupported,
   joinMuted: prefBool('diss_joinmuted', false), joinCamOff: prefBool('diss_joincamoff', false),
   devices: { mics: [], cams: [], speakers: [] },
   micId: prefStr(MIC_KEY), camId: prefStr(CAM_KEY), speakerId: prefStr(SPK_KEY),
@@ -447,7 +475,8 @@ export interface Store {
   // media extras
   toggleCaptions: () => void;
   toggleJoinPref: (kind: 'muted' | 'camOff') => void;
-  toggleBlur: () => void;
+  /** Pick a background effect: none, blur, a preset, or an uploaded image. */
+  setBackground: (id: BackgroundId, customUrl?: string) => void;
   toggleNs: () => void;
   togglePip: () => void;
   getRoom: () => Room | null;
@@ -1068,17 +1097,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     // ── room ──────────────────────────────────────────────────────────────────
     /** Apply or remove the background-blur processor on the local camera track. */
-    const applyBlur = async (on: boolean) => {
+    /**
+     * Put the chosen background effect on the local camera track.
+     *
+     * Always tears down an existing processor before setting a new one:
+     * switching between blur and an image, or between two images, has to
+     * replace the processor rather than stack a second one on the track.
+     */
+    const applyBackground = async () => {
       const room = roomRef.current;
       if (!room || !ref.current.blurSupported) return;
       const track = room.localParticipant.getTrackPublication(Track.Source.Camera)?.track as LocalVideoTrack | undefined;
       if (!track) return;
-      if (on) {
-        if (track.getProcessor()) return;
-        await track.setProcessor(BackgroundProcessor({ mode: 'background-blur', blurRadius: 10 }));
-      } else if (track.getProcessor()) {
-        await track.stopProcessor();
+      const st = ref.current;
+      const image = backgroundImage(st.bgEffect, st.bgCustomUrl);
+      if (st.bgEffect === 'none' || (st.bgEffect === 'custom' && !image)) {
+        if (track.getProcessor()) await track.stopProcessor();
+        return;
       }
+      if (track.getProcessor()) await track.stopProcessor();
+      await track.setProcessor(
+        image
+          ? BackgroundProcessor({ mode: 'virtual-background', imagePath: image })
+          : BackgroundProcessor({ mode: 'background-blur', blurRadius: 10 }),
+      );
     };
 
     /**
@@ -1160,7 +1202,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch {
         toast("Couldn't start your mic or camera — you can still watch and listen");
       }
-      if (wantCam && st.blurOn) applyBlur(true).catch(() => {});
+      if (wantCam && st.bgEffect !== 'none') applyBackground().catch(() => {});
       // Seed the chat panel with persisted history. The server filters this to
       // what the chatToken's identity may see — public messages plus their own
       // DMs — so nothing here can leak someone else's private thread.
@@ -1336,7 +1378,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       room.localParticipant.setCameraEnabled(enable)
         .then(() => {
           sync();
-          if (enable && ref.current.blurOn) applyBlur(true).catch(() => {});
+          if (enable && ref.current.bgEffect !== 'none') applyBackground().catch(() => {});
         })
         .catch(() => toast("Couldn't switch your camera — check browser permissions"));
     };
@@ -1475,7 +1517,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (room) {
         try {
           await room.switchActiveDevice(lkKind, deviceId ?? 'default');
-          if (kind === 'cam' && ref.current.blurOn) applyBlur(true).catch(() => {});
+          if (kind === 'cam' && ref.current.bgEffect !== 'none') applyBackground().catch(() => {});
           sync();
         } catch {
           toast(kind === 'mic'
@@ -1506,7 +1548,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           resolution: preset.resolution,
           ...(ref.current.camId ? { deviceId: ref.current.camId } : {}),
         });
-        if (ref.current.blurOn) applyBlur(true).catch(() => {});
+        if (ref.current.bgEffect !== 'none') applyBackground().catch(() => {});
         sync();
         toast(q === 'high' ? 'Hi-Res video on — 1080p when your connection allows'
           : q === 'saver' ? 'Data saver on — lower resolution, less bandwidth'
@@ -1880,11 +1922,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    const toggleBlur = () => {
-      const on = !ref.current.blurOn;
-      patch({ blurOn: on, moreOpen: false });
-      setPref('diss_blur', on);
-      applyBlur(on).catch(() => toast("Couldn't switch background blur — your camera may not support it"));
+    const setBackground: Store['setBackground'] = (id, customUrl) => {
+      const prev = ref.current.bgCustomUrl;
+      // Object URLs for uploaded images are ours to release; leaking one per
+      // pick would pin the whole image in memory for the tab's lifetime.
+      if (prev && prev !== customUrl) URL.revokeObjectURL(prev);
+      patch({ bgEffect: id, bgCustomUrl: customUrl ?? (id === 'custom' ? prev : null), moreOpen: false });
+      try { localStorage.setItem('diss_bg', id); } catch { /* private mode */ }
+      applyBackground().catch(() =>
+        toast("Couldn't change your background — your camera may not support it"));
     };
 
     const toggleNs = () => {
@@ -1923,7 +1969,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toggleMic, toggleCam, toggleShare, toggleHand, sendReaction, sendChat, setChatRecipient,
       moderatePeer, muteAll,
       cancelWaiting, actOnWaiting, setMeetingFlag,
-      toggleCaptions, toggleJoinPref, toggleBlur, toggleNs, togglePip,
+      toggleCaptions, toggleJoinPref, setBackground, toggleNs, togglePip,
       getRoom: () => roomRef.current,
       togglePanel: (tab) => patch(st => ({
         panel: st.panel && st.tab === tab ? false : true,

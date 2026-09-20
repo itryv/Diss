@@ -3,6 +3,7 @@ import { useApp } from '../store';
 import type { DeviceKind } from '../store';
 import { createLevelMeter } from '../media';
 import { Ic } from '../icons';
+import { BackgroundPicker } from './BackgroundPicker';
 import { initialsOf } from '../util';
 import { openPermissionSettings, PERMISSION_LABEL } from '../desktop/live/permissions';
 
@@ -250,7 +251,11 @@ export function Lobby() {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {s.blurSupported && (
-            <PrefRow label="Blur my background" hint="Kicks in once you join" on={s.blurOn} onToggle={app.toggleBlur} />
+            <div>
+              <div style={{ fontSize: 13.5, color: '#c9beb0', fontWeight: 600 }}>Background</div>
+              <div style={{ fontSize: 11.5, color: '#9a9084', margin: '1px 0 8px' }}>Kicks in once you join</div>
+              <BackgroundPicker compact />
+            </div>
           )}
           <PrefRow label="Noise suppression" hint="Softens keyboard clatter and background hum" on={s.nsOn} onToggle={app.toggleNs} />
         </div>

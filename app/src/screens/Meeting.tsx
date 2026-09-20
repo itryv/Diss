@@ -6,6 +6,7 @@ import type { ChatMessage, Peer, ShareMode, VideoQuality } from '../store';
 import { GRID_GAP, useGridMeasure, useTiles } from '../tiles';
 import type { Tile } from '../tiles';
 import { Ic, Lbl } from '../icons';
+import { BackgroundPicker } from './BackgroundPicker';
 import type { IconName } from '../icons';
 import { MENTION_ALL, fmtElapsed, initialsOf, moveInOrder, splitMentions } from '../util';
 import { DevicePicker } from './Lobby';
@@ -1227,10 +1228,6 @@ function ControlBar() {
       color: s.recOn ? '#e0836f' : '#f4eee5', go: app.toggleRec,
     }] : []),
     { label: <Lbl name="captions" text={s.captionsOn ? 'Turn off captions' : 'Captions'} />, color: s.captionsOn ? '#f0a97f' : '#f4eee5', go: app.toggleCaptions },
-    ...(s.blurSupported ? [{
-      label: <Lbl name="blur" text={s.blurOn ? 'Remove background blur' : 'Blur my background'} />,
-      color: s.blurOn ? '#f0a97f' : '#f4eee5', go: app.toggleBlur,
-    }] : []),
     { label: <Lbl name="mic" text={`Noise suppression · ${s.nsOn ? 'on' : 'off'}`} />, color: s.nsOn ? '#f0a97f' : '#f4eee5', go: app.toggleNs },
     ...(pipSupported ? [{
       label: <Lbl name="pip" text="Picture-in-picture" />, color: '#f4eee5', go: app.togglePip,
@@ -1409,6 +1406,13 @@ function ControlBar() {
             {moreItems.map((item, i) => (
               <button key={i} className="hv-bg-2e" onClick={item.go} style={{ display: 'block', width: '100%', minHeight: 44, textAlign: 'left', background: 'none', border: 'none', color: item.color, padding: '10px 13px', fontSize: 13.5, fontWeight: 500, borderRadius: 9, cursor: 'pointer' }}>{item.label}</button>
             ))}
+            {s.blurSupported && (
+              <>
+                {divider}
+                <div style={sectionLabel}>Background</div>
+                <div style={{ padding: '2px 13px 8px' }}><BackgroundPicker compact /></div>
+              </>
+            )}
             {divider}
             <div style={sectionLabel}>Video quality</div>
             {QUALITIES.map(q => {

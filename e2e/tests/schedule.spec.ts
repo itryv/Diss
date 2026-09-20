@@ -10,7 +10,10 @@ test.describe('scheduling', () => {
     await page.getByRole('button', { name: /schedule/i }).first().click();
     await expect(page.getByRole('heading', { name: /schedule a meeting/i })).toBeVisible();
 
-    await page.getByLabel('Title').fill('Next week sync');
+    // The comma and semicolon are deliberate: RFC 5545 requires both to be
+    // escaped in a TEXT value, and an unescaped one truncates the field when a
+    // calendar imports it.
+    await page.getByLabel('Title').fill('Next week sync, part two; final');
 
     // The date field used to be readOnly and pinned to today, so nothing could
     // be scheduled for any other day. Pick a date a week out and make sure it
@@ -57,7 +60,7 @@ test.describe('scheduling', () => {
     expect(file.suggestedFilename()).toBe(`${meeting.code}.ics`);
     const body = await (await import('node:fs/promises')).readFile(await file.path(), 'utf8');
     expect(body).toContain('BEGIN:VCALENDAR');
-    expect(body).toContain('SUMMARY:Next week sync');
+    expect(body).toContain(String.raw`SUMMARY:Next week sync\, part two\; final`);
     expect(body).toContain(meeting.code);
     // RFC 5545 requires CRLF; a calendar app will reject LF-only.
     expect(body).toContain('\r\n');
