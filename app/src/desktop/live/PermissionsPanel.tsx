@@ -10,7 +10,7 @@ const DOT: Record<PermissionState, string> = {
   denied: '#c94a38',
   restricted: '#c94a38',
   'not-determined': '#e0b45f',
-  unknown: '#6f665b',
+  unknown: '#9a9084',
 };
 
 function Row({ kind, state, onFix, busy }: {
@@ -27,7 +27,7 @@ function Row({ kind, state, onFix, busy }: {
       <span style={{ width: 8, height: 8, borderRadius: '50%', background: DOT[state] ?? DOT.unknown, flex: 'none' }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14.5, fontWeight: 600 }}>{PERMISSION_LABEL[kind]}</div>
-        <div style={{ fontSize: 12.5, color: '#8a7f70', marginTop: 2, lineHeight: 1.45 }}>
+        <div style={{ fontSize: 12.5, color: '#968a7b', marginTop: 2, lineHeight: 1.45 }}>
           {state === 'granted' ? PERMISSION_WHY[kind] : permissionHint(kind, state)}
         </div>
       </div>
@@ -106,8 +106,8 @@ export function PermissionsPanel() {
       <div style={{ background: '#1e1a16', border: '1px solid #2e2822', borderRadius: 16, overflow: 'hidden' }}>
         {perms
           ? order.map(k => <Row key={k} kind={k} state={perms[k]} onFix={onFix} busy={busy} />)
-          : <div style={{ padding: 20, fontSize: 13.5, color: '#8a7f70' }}>Checking…</div>}
-        <div style={{ padding: '13px 20px', fontSize: 12.5, color: '#6f665b', lineHeight: 1.5 }}>
+          : <div style={{ padding: 20, fontSize: 13.5, color: '#968a7b' }}>Checking…</div>}
+        <div style={{ padding: '13px 20px', fontSize: 12.5, color: '#9a9084', lineHeight: 1.5 }}>
           macOS remembers these per app. Changes made in System Settings show up here as soon as you come back.
         </div>
       </div>

@@ -57,7 +57,7 @@ export function MeetingWindow() {
           <StripTile label="Amara (you)" gradient="linear-gradient(150deg,#2b2620,#141110)" />
           <StripTile label="Priya R." gradient="linear-gradient(150deg,#26242c,#141110)" />
           <StripTile label="Tom N." gradient="linear-gradient(150deg,#242a2c,#141110)" />
-          <div style={{ flex: 1, borderRadius: 12, background: '#161311', display: 'grid', placeItems: 'center', color: '#8a7f70', fontSize: 13, fontWeight: 600 }}>+6</div>
+          <div style={{ flex: 1, borderRadius: 12, background: '#161311', display: 'grid', placeItems: 'center', color: '#968a7b', fontSize: 13, fontWeight: 600 }}>+6</div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, paddingTop: 2 }}>

@@ -44,7 +44,7 @@ export function Notifications() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                   <span style={{ fontSize: 13, fontWeight: 700 }}>Diss</span>
-                  <span style={{ fontSize: 11.5, color: '#8a7f70' }}>{n.when}</span>
+                  <span style={{ fontSize: 11.5, color: '#968a7b' }}>{n.when}</span>
                 </div>
                 <div style={{ fontSize: 13.5, lineHeight: 1.45, marginTop: 3, color: '#e8e0d5' }}>{n.body}</div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 11 }}>

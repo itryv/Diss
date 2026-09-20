@@ -6,7 +6,7 @@ function IconState({ label, children }: { label: string; children: React.ReactNo
   return (
     <div style={{ textAlign: 'center' }}>
       <span style={{ width: 34, height: 34, borderRadius: 9, background: '#1a1613', display: 'grid', placeItems: 'center', marginBottom: 7, position: 'relative' }}>{children}</span>
-      <span style={{ display: 'block', fontSize: 11, color: '#8a7f70' }}>{label}</span>
+      <span style={{ display: 'block', fontSize: 11, color: '#968a7b' }}>{label}</span>
     </div>
   );
 }
@@ -22,7 +22,7 @@ function QuickAction({ icon, label }: { icon: React.ReactNode; label: string }) 
 function TodayRow({ time, title }: { time: string; title: string }) {
   return (
     <div className="dk-tray-row" style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 8px', borderRadius: 9, cursor: 'pointer' }}>
-      <span style={{ fontFamily: MONO, fontSize: 11.5, color: '#8a7f70', width: 52 }}>{time}</span>
+      <span style={{ fontFamily: MONO, fontSize: 11.5, color: '#968a7b', width: 52 }}>{time}</span>
       <span style={{ fontSize: 13, fontWeight: 500, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
       <span style={{ fontSize: 11.5, fontWeight: 700, color: '#f0a97f' }}>Join</span>
     </div>
@@ -33,7 +33,7 @@ function MenuRow({ label, shortcut, onClick }: { label: string; shortcut?: strin
   return (
     <div className="dk-tray-row" onClick={onClick} style={{ display: 'flex', alignItems: 'center', padding: 8, borderRadius: 8, fontSize: 13, color: '#d6cec2', cursor: 'pointer' }}>
       {label}
-      {shortcut && <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 11, color: '#6f665b' }}>{shortcut}</span>}
+      {shortcut && <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 11, color: '#9a9084' }}>{shortcut}</span>}
     </div>
   );
 }
@@ -42,7 +42,7 @@ export function TrayPanel() {
   const { s, mac, go } = useDesktop();
   return (
     <div style={{ width: '100%', maxWidth: 1120, position: 'relative', minHeight: 620 }}>
-      <div style={{ position: 'absolute', top: 0, color: '#6f665b', fontSize: 12.5, maxWidth: 420, lineHeight: 1.55 }}>
+      <div style={{ position: 'absolute', top: 0, color: '#9a9084', fontSize: 12.5, maxWidth: 420, lineHeight: 1.55 }}>
         <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 19, color: '#f4eee5', marginBottom: 8 }}>
           {mac ? 'Menu-bar panel' : 'System-tray flyout'}
         </div>
@@ -89,7 +89,7 @@ export function TrayPanel() {
             <QuickAction icon={<DCopy size={16} color="#f08b5f" />} label="Copy link" />
           </div>
 
-          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase', color: '#6f665b', padding: '16px 6px 8px' }}>Today</div>
+          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase', color: '#9a9084', padding: '16px 6px 8px' }}>Today</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <TodayRow time="4:00 PM" title="Design review" />
             <TodayRow time="5:30 PM" title="1:1 with Priya" />
@@ -119,7 +119,7 @@ export function TrayPanel() {
             <button className="hv-danger-soft" style={{ flex: 2, background: 'rgba(224,96,79,.12)', border: '1px solid rgba(224,96,79,.3)', borderRadius: 9, padding: 9, cursor: 'pointer', color: '#e0836f', fontSize: 12.5, fontWeight: 700 }}>Leave</button>
           </div>
         </div>
-        <div style={{ marginTop: 24, background: '#1a1613', border: '1px dashed #362f28', borderRadius: 12, padding: 14, color: '#8a7f70', fontSize: 12.5, lineHeight: 1.5 }}>
+        <div style={{ marginTop: 24, background: '#1a1613', border: '1px dashed #362f28', borderRadius: 12, padding: 14, color: '#968a7b', fontSize: 12.5, lineHeight: 1.5 }}>
           <span style={{ color: '#a3988a', fontWeight: 600 }}>Empty state:</span> “Nothing scheduled today — enjoy the quiet.”
         </div>
       </div>

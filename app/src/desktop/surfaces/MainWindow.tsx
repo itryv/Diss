@@ -10,7 +10,7 @@ function NavItem({ icon, label, active, shortcut, onClick }: { icon: React.React
       fontSize: 14, fontWeight: active ? 600 : 500, cursor: 'pointer',
     }}>
       {icon}{label}
-      {shortcut && <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 10.5, color: '#6f665b' }}>{shortcut}</span>}
+      {shortcut && <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 10.5, color: '#9a9084' }}>{shortcut}</span>}
     </div>
   );
 }
@@ -20,7 +20,7 @@ function LaterRow({ time, title, dur }: { time: string; title: string; dur: stri
     <div className="dk-row" style={{ display: 'flex', alignItems: 'center', gap: 16, background: '#1e1a16', border: '1px solid #2a241e', borderRadius: 12, padding: '14px 16px' }}>
       <span style={{ fontFamily: MONO, fontSize: 13, color: '#a3988a', width: 66 }}>{time}</span>
       <span style={{ fontSize: 14.5, fontWeight: 600, flex: 1 }}>{title}</span>
-      <span style={{ fontSize: 13, color: '#6f665b' }}>{dur}</span>
+      <span style={{ fontSize: 13, color: '#9a9084' }}>{dur}</span>
     </div>
   );
 }
@@ -74,7 +74,7 @@ export function MainWindow() {
               <button className="hv-primary" onClick={() => go('meeting')} style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 12, padding: '13px 26px', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>Join</button>
             </div>
 
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase', color: '#6f665b', marginBottom: 10 }}>Later today</div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase', color: '#9a9084', marginBottom: 10 }}>Later today</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <LaterRow time="4:00 PM" title="Design review — desktop shell" dur="45 min" />
               <LaterRow time="5:30 PM" title="1:1 with Priya" dur="30 min" />

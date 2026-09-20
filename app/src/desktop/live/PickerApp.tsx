@@ -103,12 +103,12 @@ export function PickerApp() {
             {mac && <div style={{ marginTop: 8, color: '#a3988a' }}>macOS may be blocking Screen Recording for Diss — check Settings → Desktop.</div>}
           </div>
         )}
-        {!error && sources === null && <div style={{ color: '#8a7f70', fontSize: 13.5 }}>Looking for your screens…</div>}
+        {!error && sources === null && <div style={{ color: '#968a7b', fontSize: 13.5 }}>Looking for your screens…</div>}
         {!error && sources !== null && tab === 'window' && loadingWindows && shown.length === 0 && (
-          <div style={{ color: '#8a7f70', fontSize: 13.5 }}>Looking for open windows…</div>
+          <div style={{ color: '#968a7b', fontSize: 13.5 }}>Looking for open windows…</div>
         )}
         {!error && sources !== null && shown.length === 0 && !(tab === 'window' && loadingWindows) && (
-          <div style={{ color: '#8a7f70', fontSize: 13.5, lineHeight: 1.5 }}>
+          <div style={{ color: '#968a7b', fontSize: 13.5, lineHeight: 1.5 }}>
             Nothing to share here.
             {mac && tab === 'screen' && ' If your screens are missing, Diss may not have Screen Recording permission yet.'}
           </div>
@@ -124,7 +124,7 @@ export function PickerApp() {
                   ) : (
                     // No preview available — say so plainly rather than showing a
                     // broken image; the surface is still perfectly shareable.
-                    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 7, color: '#6f665b', padding: 12, textAlign: 'center' }}>
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 7, color: '#9a9084', padding: 12, textAlign: 'center' }}>
                       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                         <rect x="2.5" y="4" width="19" height="13" rx="2" /><path d="M8 21h8M12 17v4" />
                       </svg>
@@ -143,14 +143,14 @@ export function PickerApp() {
       {warn && tab === 'screen' && !error && <Warning onDismiss={() => setWarn(false)} />}
 
       {audioBlocked && mac && !error && (
-        <div style={{ margin: '0 22px 14px', fontSize: 12.5, color: '#8a7f70', lineHeight: 1.5 }}>
+        <div style={{ margin: '0 22px 14px', fontSize: 12.5, color: '#968a7b', lineHeight: 1.5 }}>
           Sharing computer sound natively requires macOS 13 or later.
         </div>
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 22px', borderTop: '1px solid #2e2822', background: '#1e1a16' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, opacity: audioBlocked && intent.audio ? 0.55 : 1 }}>
-          <span style={{ width: 9, height: 9, borderRadius: '50%', background: intent.audio ? '#6fbf8f' : '#6f665b', flex: 'none' }} />
+          <span style={{ width: 9, height: 9, borderRadius: '50%', background: intent.audio ? '#6fbf8f' : '#9a9084', flex: 'none' }} />
           <span style={{ fontSize: 13.5, fontWeight: 600 }}>
             {intent.audioOnly ? 'Computer audio only' : intent.audio ? 'Screen and computer audio' : 'Screen only'}
           </span>
@@ -160,7 +160,7 @@ export function PickerApp() {
           className="hv-primary"
           disabled={!canShare}
           onClick={() => selected && api?.picker.choose({ id: selected, withAudio: intent.audio })}
-          style={{ background: canShare ? '#f08b5f' : '#2e2822', color: canShare ? '#241209' : '#6f665b', border: 'none', borderRadius: 11, padding: '10px 22px', fontSize: 13.5, fontWeight: 700, cursor: canShare ? 'pointer' : 'default' }}
+          style={{ background: canShare ? '#f08b5f' : '#2e2822', color: canShare ? '#241209' : '#9a9084', border: 'none', borderRadius: 11, padding: '10px 22px', fontSize: 13.5, fontWeight: 700, cursor: canShare ? 'pointer' : 'default' }}
         >Share</button>
       </div>
     </div>

@@ -25,7 +25,7 @@ export function SystemStates() {
             </div>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 14.5, fontWeight: 600 }}>Opening Weekly team sync…</div>
-              <div style={{ fontFamily: MONO, fontSize: 11.5, color: '#6f665b', marginTop: 6 }}>diss://join/abc-defg-hij</div>
+              <div style={{ fontFamily: MONO, fontSize: 11.5, color: '#9a9084', marginTop: 6 }}>diss://join/abc-defg-hij</div>
             </div>
           </div>
           <div style={{ ...note, marginTop: 12 }}>Splash only covers the gap; the lobby must be on screen in a couple of seconds.</div>
@@ -45,7 +45,7 @@ export function SystemStates() {
             <button className="hv-primary" onClick={() => set({ perm: denied ? 'ask' : 'denied' })} style={{ width: '100%', background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 11, padding: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
               {denied ? (mac ? 'Open Privacy & Security' : 'Open Windows settings') : 'Continue'}
             </button>
-            <button onClick={() => set({ perm: denied ? 'ask' : 'denied' })} style={{ width: '100%', background: 'none', border: 'none', color: '#8a7f70', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', marginTop: 10 }}>
+            <button onClick={() => set({ perm: denied ? 'ask' : 'denied' })} style={{ width: '100%', background: 'none', border: 'none', color: '#968a7b', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', marginTop: 10 }}>
               {denied ? 'Join without camera and mic' : 'See the denied state'}
             </button>
           </div>
@@ -62,7 +62,7 @@ export function SystemStates() {
             <div style={{ background: '#241f1a', border: '1px solid #3a332b', borderRadius: 14, boxShadow: '0 12px 40px rgba(0,0,0,.5)', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#6fbf8f', flex: 'none' }} />
               <span style={{ flex: 1, fontSize: 13.5 }}>Diss updated to 1.4 — <a href="#">see what's new</a></span>
-              <DClose size={15} color="#8a7f70" style={{ cursor: 'pointer' }} />
+              <DClose size={15} color="#968a7b" style={{ cursor: 'pointer' }} />
             </div>
           </div>
           <div>

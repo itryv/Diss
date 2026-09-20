@@ -39,7 +39,7 @@ export function Landing() {
           <button className="hv-primary" onClick={() => s.user ? app.createInstantMeeting(true) : app.go('auth', { authMode: 'signup', authError: null })} style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 14, padding: '16px 28px', fontWeight: 700, fontSize: 17, cursor: 'pointer', boxShadow: '0 8px 30px rgba(240,139,95,.25)' }}>Start a meeting</button>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: '#1e1a16', border: '1px solid #362f28', borderRadius: 14, padding: '6px 6px 6px 16px' }}>
             <input value={s.code} onChange={e => app.patch({ code: e.target.value, codeInvalid: false })} placeholder="Enter a code or link" style={{ background: 'none', border: 'none', outline: 'none', color: '#f4eee5', fontSize: 16, fontFamily: 'inherit', width: 210 }} />
-            <button onClick={join} disabled={!ok && s.code.length === 0} style={{ background: ok ? '#f08b5f' : '#2e2822', color: ok ? '#241209' : '#6f665b', border: 'none', borderRadius: 10, padding: '11px 18px', fontWeight: 600, fontSize: 15, cursor: 'pointer' }}>Join</button>
+            <button onClick={join} disabled={!ok && s.code.length === 0} style={{ background: ok ? '#f08b5f' : '#2e2822', color: ok ? '#241209' : '#9a9084', border: 'none', borderRadius: 10, padding: '11px 18px', fontWeight: 600, fontSize: 15, cursor: 'pointer' }}>Join</button>
           </div>
         </div>
         {s.codeInvalid && (
@@ -73,9 +73,9 @@ export function Landing() {
           ))}
         </div>
       </div>
-      <footer style={{ padding: '20px 48px', color: '#6f665b', fontSize: 13, display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #241f1a' }}>
+      <footer style={{ padding: '20px 48px', color: '#9a9084', fontSize: 13, display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #241f1a' }}>
         <span>© 2026 Diss</span>
-        <span style={{ display: 'flex', gap: 18 }}><a href="#" style={{ color: '#6f665b' }}>Privacy</a><a href="#" style={{ color: '#6f665b' }}>Terms</a></span>
+        <span style={{ display: 'flex', gap: 18 }}><a href="#" style={{ color: '#9a9084' }}>Privacy</a><a href="#" style={{ color: '#9a9084' }}>Terms</a></span>
       </footer>
     </section>
   );

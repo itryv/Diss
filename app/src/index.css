@@ -20,7 +20,7 @@ html, body { max-width: 100%; overflow-x: hidden; -webkit-text-size-adjust: 100%
 img, video, canvas, svg { max-width: 100%; }
 a { color: #f0a97f; text-decoration: none; }
 a:hover { color: #f6c2a2; }
-input::placeholder, textarea::placeholder { color: #6f665b; }
+input::placeholder, textarea::placeholder { color: #9a9084; }
 select option { background: #241f1a; color: #f4eee5; }
 button { font-family: inherit; }
 input:focus, textarea:focus { border-color: #f08b5f !important; }
@@ -54,7 +54,40 @@ input:focus, textarea:focus { border-color: #f08b5f !important; }
 @keyframes recBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @keyframes badgePulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(240, 139, 95, 0.6); } 70% { box-shadow: 0 0 0 8px rgba(240, 139, 95, 0); } }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { * { animation-duration: 0.01s !important; } }
+/*
+ * Reduced motion. animation-duration alone is not enough: it leaves
+ * animation-iteration-count: infinite intact, so recBlink, badgePulse, spin,
+ * meterA and breathe kept looping — at 0.01s each, roughly 100 times a second.
+ * That is far past the WCAG 2.3.1 three-flashes threshold, and it fired only
+ * for the people who asked for less motion. Kill the repeat and the transition
+ * too. Anything that carries meaning by moving (the REC dot, the reconnecting
+ * spinner) is given a static form below rather than left flashing.
+ */
+/* Visible to assistive technology only. Used where a visual separator or a
+   heading carries meaning that has no on-screen text equivalent. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* State that was conveyed by blinking still has to read as "on". */
+  .rec-dot { opacity: 1 !important; }
+  .spinner { border-top-color: currentColor !important; }
+}
 
 /* Touch devices have no hover, so the tile actions must always be reachable. */
 @media (hover: none) {

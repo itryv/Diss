@@ -24,7 +24,7 @@ export function Auth() {
             </span>Continue with Microsoft
           </button>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0', color: '#6f665b', fontSize: 13 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0', color: '#9a9084', fontSize: 13 }}>
           <span style={{ flex: 1, height: 1, background: '#362f28' }} />or<span style={{ flex: 1, height: 1, background: '#362f28' }} />
         </div>
         <form
@@ -45,8 +45,8 @@ export function Auth() {
           {signup ? 'Already have an account?' : 'New here?'}{' '}
           <a href="#" onClick={e => { e.preventDefault(); app.patch({ authMode: signup ? 'signin' : 'signup', authError: null }); }} style={{ fontWeight: 600 }}>{signup ? 'Sign in' : 'Create account'}</a>
         </div>
-        <div style={{ textAlign: 'center', marginTop: 16, fontSize: 12, color: '#6f665b', lineHeight: 1.5 }}>
-          By continuing you agree to our <a href="#" style={{ color: '#8a7f70' }}>Terms</a> and <a href="#" style={{ color: '#8a7f70' }}>Privacy Policy</a>.
+        <div style={{ textAlign: 'center', marginTop: 16, fontSize: 12, color: '#9a9084', lineHeight: 1.5 }}>
+          By continuing you agree to our <a href="#" style={{ color: '#968a7b' }}>Terms</a> and <a href="#" style={{ color: '#968a7b' }}>Privacy Policy</a>.
         </div>
       </div>
     </section>

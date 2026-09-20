@@ -89,6 +89,10 @@ const PRIV_BG = 'rgba(126,102,209,.16)';
 const PRIV_BG_MINE = 'rgba(126,102,209,.34)';
 
 const EMOJIS: IconName[] = ['thumbsUp', 'heart', 'laugh', 'party', 'clap'];
+/** Icon-only buttons need a name; without one these announce as five "button"s. */
+const EMOJI_LABEL: Record<string, string> = {
+  thumbsUp: 'Thumbs up', heart: 'Heart', laugh: 'Laugh', party: 'Celebrate', clap: 'Applause',
+};
 
 const SHARE_MODES: { mode: ShareMode; icon: IconName; text: string; hint: string }[] = [
   { mode: 'screen', icon: 'share', text: 'Share your screen', hint: 'Picture only' },
@@ -413,7 +417,7 @@ function SpeakerView() {
           <StripTile key={p.key} tile={p} w={stripW} h={0} />
         ))}
         {stripOverflow && (
-          <div style={{ width: 64, aspectRatio: '16/10', background: '#1e1a16', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a7f70', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>{stripOverflow}</div>
+          <div style={{ width: 64, aspectRatio: '16/10', background: '#1e1a16', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#968a7b', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>{stripOverflow}</div>
         )}
         </div>
       </div>
@@ -471,9 +475,9 @@ function MessageRow({ m, targets, me }: { m: ChatMessage; targets: { identity: s
   const tag: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase' };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: m.mine ? 'flex-end' : 'flex-start', opacity: m.history ? 0.75 : 1 }}>
-      <div style={{ fontSize: 11.5, color: '#8a7f70', fontWeight: 600 }}>
+      <div style={{ fontSize: 11.5, color: '#968a7b', fontWeight: 600 }}>
         {m.who}
-        {m.ts !== undefined && <span style={{ color: '#6f665b', fontWeight: 400, marginLeft: 6 }}>{new Date(m.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>}
+        {m.ts !== undefined && <span style={{ color: '#9a9084', fontWeight: 400, marginLeft: 6 }}>{new Date(m.ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>}
       </div>
       {priv && (
         <div style={{ ...tag, color: PRIV_FG }}>
@@ -507,7 +511,7 @@ function SwitchRow({ label, hint, on, onToggle, disabled }: { label: string; hin
     >
       <span style={{ minWidth: 0 }}>
         <span style={{ display: 'block', fontSize: 12.5, color: '#c9beb0', fontWeight: 600 }}>{label}</span>
-        {hint && <span style={{ display: 'block', fontSize: 11, color: '#6f665b', marginTop: 2 }}>{hint}</span>}
+        {hint && <span style={{ display: 'block', fontSize: 11, color: '#9a9084', marginTop: 2 }}>{hint}</span>}
       </span>
       <span style={{ width: 38, height: 22, borderRadius: 99, background: on ? '#f08b5f' : '#3a332b', position: 'relative', transition: 'background .15s', flexShrink: 0 }}>
         <span style={{ position: 'absolute', top: 3, left: on ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#f4eee5', transition: 'left .15s' }} />
@@ -582,7 +586,12 @@ function SidePanel() {
     display: 'flex', alignItems: 'center', gap: 10, width: '100%', minHeight: 44,
     textAlign: 'left', border: 'none', padding: '8px 10px', borderRadius: 9, cursor: 'pointer',
   };
-  useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: 'smooth' }); }, [s.messages.length]);
+  // A JS smooth scroll ignores the CSS media query, so check it here too —
+  // this fires on every incoming message.
+  useEffect(() => {
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    chatEnd.current?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth' });
+  }, [s.messages.length]);
   // Narrow: a full-screen sheet over the video instead of a 340px sidebar that
   // would push the page wider than the viewport.
   const sheet: React.CSSProperties = s.isNarrow
@@ -591,9 +600,9 @@ function SidePanel() {
   return (
     <div style={{ background: '#1a1613', display: 'flex', flexDirection: 'column', overflow: 'hidden', animation: 'fadeUp .25s ease', ...sheet }}>
       <div style={{ display: 'flex', padding: s.isNarrow ? 'calc(12px + var(--sat)) calc(10px + var(--sar)) 2px calc(10px + var(--sal))' : '10px 10px 0', gap: 4, alignItems: 'center' }}>
-        <button onClick={() => app.patch({ tab: 'chat', unread: 0 })} style={{ flex: 1, minHeight: 44, background: s.tab === 'chat' ? '#2a241e' : 'none', color: s.tab === 'chat' ? '#f4eee5' : '#8a7f70', border: 'none', borderRadius: 10, padding: 10, fontWeight: 600, fontSize: 13.5, cursor: 'pointer' }}>Chat</button>
-        <button onClick={() => app.patch({ tab: 'people' })} style={{ flex: 1, minHeight: 44, background: s.tab === 'people' ? '#2a241e' : 'none', color: s.tab === 'people' ? '#f4eee5' : '#8a7f70', border: 'none', borderRadius: 10, padding: 10, fontWeight: 600, fontSize: 13.5, cursor: 'pointer' }}>People · {tiles.length}</button>
-        <button className="hv-fg" onClick={() => app.patch({ panel: false })} title="Close panel" style={{ background: 'none', border: 'none', color: '#6f665b', cursor: 'pointer', width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic name="close" size={s.isNarrow ? 20 : 15} /></button>
+        <button onClick={() => app.patch({ tab: 'chat', unread: 0 })} style={{ flex: 1, minHeight: 44, background: s.tab === 'chat' ? '#2a241e' : 'none', color: s.tab === 'chat' ? '#f4eee5' : '#968a7b', border: 'none', borderRadius: 10, padding: 10, fontWeight: 600, fontSize: 13.5, cursor: 'pointer' }}>Chat</button>
+        <button onClick={() => app.patch({ tab: 'people' })} style={{ flex: 1, minHeight: 44, background: s.tab === 'people' ? '#2a241e' : 'none', color: s.tab === 'people' ? '#f4eee5' : '#968a7b', border: 'none', borderRadius: 10, padding: 10, fontWeight: 600, fontSize: 13.5, cursor: 'pointer' }}>People · {tiles.length}</button>
+        <button className="hv-fg" onClick={() => app.patch({ panel: false })} title="Close panel" style={{ background: 'none', border: 'none', color: '#9a9084', cursor: 'pointer', width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic name="close" size={s.isNarrow ? 20 : 15} /></button>
       </div>
       {s.tab === 'chat' ? (
         <>
@@ -610,7 +619,7 @@ function SidePanel() {
                 </span>
               </div>
             ) : (
-              <div style={{ textAlign: 'center', color: '#6f665b', fontSize: 11.5, padding: '4px 0' }}>Messages are saved with this meeting</div>
+              <div style={{ textAlign: 'center', color: '#9a9084', fontSize: 11.5, padding: '4px 0' }}>Messages are saved with this meeting</div>
             )}
             {s.messages.map((m, i) => {
               const lastHistory = m.history && !s.messages[i + 1]?.history;
@@ -618,7 +627,7 @@ function SidePanel() {
                 <Fragment key={i}>
                   <MessageRow m={m} targets={targets} me={s.identity} />
                   {lastHistory && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#6f665b', fontSize: 11 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#9a9084', fontSize: 11 }}>
                       <span style={{ flex: 1, height: 1, background: '#2a241e' }} />
                       earlier in this meeting
                       <span style={{ flex: 1, height: 1, background: '#2a241e' }} />
@@ -645,7 +654,7 @@ function SidePanel() {
                   display: 'flex', alignItems: 'center', gap: 6, minHeight: 34, flex: 1, minWidth: 0,
                   background: toPeer ? PRIV_BG : '#1c1815',
                   border: `1px ${toPeer ? 'dashed' : 'solid'} ${toPeer ? PRIV_EDGE : '#3a332b'}`,
-                  color: toPeer ? PRIV_FG : '#8a7f70',
+                  color: toPeer ? PRIV_FG : '#968a7b',
                   borderRadius: 10, padding: '6px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                 }}
               >
@@ -656,7 +665,7 @@ function SidePanel() {
                 <Ic name={toOpen ? 'chevronDown' : 'chevronUp'} size={12} />
               </button>
               {toPeer && (
-                <button className="hv-fg" onClick={() => app.setChatRecipient(null)} title="Message everyone instead" style={{ background: 'none', border: '1px solid #3a332b', color: '#8a7f70', borderRadius: 10, width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                <button className="hv-fg" onClick={() => app.setChatRecipient(null)} title="Message everyone instead" style={{ background: 'none', border: '1px solid #3a332b', color: '#968a7b', borderRadius: 10, width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
                   <Ic name="close" size={13} />
                 </button>
               )}
@@ -664,7 +673,7 @@ function SidePanel() {
 
             {toOpen && (
               <div style={panelPopup}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: '#6f665b', padding: '6px 10px 4px' }}>Send to</div>
+                <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: '#9a9084', padding: '6px 10px 4px' }}>Send to</div>
                 <button
                   className="hv-bg-2e"
                   onClick={() => { app.setChatRecipient(null); setToOpen(false); }}
@@ -694,7 +703,7 @@ function SidePanel() {
 
             {mentionAt !== null && options.length > 0 && (
               <div style={panelPopup}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: '#6f665b', padding: '6px 10px 4px' }}>Mention someone</div>
+                <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: '#9a9084', padding: '6px 10px 4px' }}>Mention someone</div>
                 {options.map((o, i) => (
                   <button
                     key={o.identity}
@@ -708,7 +717,7 @@ function SidePanel() {
                     <Ic name={o.identity === MENTION_ALL ? 'users' : 'at'} size={15} style={{ color: '#f0a97f' }} />
                     <span style={{ flex: 1, minWidth: 0 }}>
                       <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>@{o.name}</span>
-                      {o.hint && <span style={{ display: 'block', fontSize: 11, color: '#8a7f70' }}>{o.hint}</span>}
+                      {o.hint && <span style={{ display: 'block', fontSize: 11, color: '#968a7b' }}>{o.hint}</span>}
                     </span>
                   </button>
                 ))}
@@ -761,13 +770,13 @@ function SidePanel() {
                       <span style={{ width: 28, height: 28, borderRadius: '50%', background: '#8a7a4a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 10.5, fontFamily: "'Bricolage Grotesque',sans-serif", flexShrink: 0 }}>{initialsOf(g.displayName)}</span>
                       <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.displayName}</div>
                       <button className="hv-primary" onClick={() => app.actOnWaiting(g.waitingId, 'admit')} style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 8, padding: '6px 12px', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Admit</button>
-                      <button className="hv-fg" onClick={() => app.actOnWaiting(g.waitingId, 'deny')} style={{ background: 'none', border: '1px solid #3a332b', color: '#8a7f70', borderRadius: 8, padding: '5px 10px', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>Deny</button>
+                      <button className="hv-fg" onClick={() => app.actOnWaiting(g.waitingId, 'deny')} style={{ background: 'none', border: '1px solid #3a332b', color: '#968a7b', borderRadius: 8, padding: '5px 10px', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>Deny</button>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: '#8a7f70', marginBottom: 8 }}>In meeting · {tiles.length}</div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: '#968a7b', marginBottom: 8 }}>In meeting · {tiles.length}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               {tiles.map(p => {
                 const peer = roster.find(r => r.identity === p.identity);
@@ -786,7 +795,7 @@ function SidePanel() {
                       className="hv-fg"
                       onClick={() => app.setChatRecipient(p.identity)}
                       title={`Message ${p.short} privately`}
-                      style={{ background: 'none', border: 'none', color: s.chatTo === p.identity ? PRIV_FG : '#6f665b', cursor: 'pointer', padding: 3, flexShrink: 0 }}
+                      style={{ background: 'none', border: 'none', color: s.chatTo === p.identity ? PRIV_FG : '#9a9084', cursor: 'pointer', padding: 3, flexShrink: 0 }}
                     >
                       <Ic name="chat" size={14} />
                     </button>
@@ -796,18 +805,18 @@ function SidePanel() {
                       className="hv-fg"
                       onClick={() => app.moderatePeer(p.identity, mayShare ? 'deny-share' : 'allow-share')}
                       title={mayShare ? `Stop ${p.short} sharing their screen` : `Let ${p.short} share their screen`}
-                      style={{ background: 'none', border: 'none', color: mayShare ? '#6f665b' : '#e0836f', cursor: 'pointer', padding: 3, flexShrink: 0 }}
+                      style={{ background: 'none', border: 'none', color: mayShare ? '#9a9084' : '#e0836f', cursor: 'pointer', padding: 3, flexShrink: 0 }}
                     >
                       <Ic name={mayShare ? 'share' : 'shareOff'} size={15} />
                     </button>
                   )}
                   {p.canPromote && (
-                    <button className="hv-fg" onClick={p.promoteToggle} title={p.isCoHost ? 'Remove co-host' : 'Make co-host'} style={{ background: 'none', border: 'none', color: p.isCoHost ? '#f0a97f' : '#6f665b', cursor: 'pointer', padding: 3 }}><Ic name="star" size={14} /></button>
+                    <button className="hv-fg" onClick={p.promoteToggle} title={p.isCoHost ? 'Remove co-host' : 'Make co-host'} style={{ background: 'none', border: 'none', color: p.isCoHost ? '#f0a97f' : '#9a9084', cursor: 'pointer', padding: 3 }}><Ic name="star" size={14} /></button>
                   )}
                   {p.canModerate && (
                     <>
-                      <button className="hv-fg" onClick={p.hostMute} title="Mute for everyone" disabled={p.muted} style={{ background: 'none', border: 'none', color: p.muted ? '#3a332b' : '#6f665b', cursor: p.muted ? 'default' : 'pointer', padding: 3 }}><Ic name="micOff" size={15} /></button>
-                      <button className="hv-fg" onClick={p.hostRemove} title="Remove from meeting" style={{ background: 'none', border: 'none', color: '#6f665b', cursor: 'pointer', padding: 3 }}><Ic name="close" size={14} /></button>
+                      <button className="hv-fg" onClick={p.hostMute} title="Mute for everyone" disabled={p.muted} style={{ background: 'none', border: 'none', color: p.muted ? '#3a332b' : '#9a9084', cursor: p.muted ? 'default' : 'pointer', padding: 3 }}><Ic name="micOff" size={15} /></button>
+                      <button className="hv-fg" onClick={p.hostRemove} title="Remove from meeting" style={{ background: 'none', border: 'none', color: '#9a9084', cursor: 'pointer', padding: 3 }}><Ic name="close" size={14} /></button>
                     </>
                   )}
                 </div>
@@ -821,7 +830,7 @@ function SidePanel() {
                   (contract v4 §2), applied live to everyone already in the room. */}
               {s.hostPanelOpen && (
                 <div style={{ background: '#1c1815', border: '1px solid #2f2820', borderRadius: 12, padding: '4px 10px 8px' }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: '#6f665b', padding: '8px 4px 2px' }}>Host controls</div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: '#9a9084', padding: '8px 4px 2px' }}>Host controls</div>
                   <SwitchRow
                     label="Participants can share their screen"
                     on={s.meeting?.allowShare !== false}
@@ -846,7 +855,7 @@ function SidePanel() {
                     disabled={!s.isHost}
                     onToggle={() => app.setMeetingFlag({ waitingRoom: !s.meeting?.waitingRoom })}
                   />
-                  <div style={{ fontSize: 11, color: '#6f665b', lineHeight: 1.5, padding: '6px 4px 0', borderTop: '1px solid #2a241e', marginTop: 4 }}>
+                  <div style={{ fontSize: 11, color: '#9a9084', lineHeight: 1.5, padding: '6px 4px 0', borderTop: '1px solid #2a241e', marginTop: 4 }}>
                     {s.isHost
                       ? 'Hosts and co-hosts are never restricted. Use the icons on a row to allow or deny one person’s screen share.'
                       : 'Only the host can change these. You can still allow or deny one person’s screen share from their row.'}
@@ -905,7 +914,7 @@ function ShareModeList({ onPick, onStop, sharing, mode, blocked }: { onPick: (m:
             <Ic name={m.icon} size={17} />
             <span style={{ flex: 1, minWidth: 0 }}>
               <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>{m.text}</span>
-              <span style={{ display: 'block', fontSize: 11.5, color: '#8a7f70' }}>{m.hint}</span>
+              <span style={{ display: 'block', fontSize: 11.5, color: '#968a7b' }}>{m.hint}</span>
             </span>
             {on && <Ic name="check" size={15} />}
           </button>
@@ -941,7 +950,7 @@ const fieldStyle: React.CSSProperties = {
   color: '#f4eee5', fontSize: 13, fontFamily: 'inherit', outline: 'none', minWidth: 0, width: '100%',
 };
 const sectionHead: React.CSSProperties = {
-  fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: '#6f665b',
+  fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: '#9a9084',
 };
 
 /**
@@ -991,7 +1000,7 @@ function BreakoutPanel() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ color: '#f0a97f', display: 'flex' }}><Ic name="breakout" size={18} /></span>
           <h3 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 18, margin: 0, flex: 1, minWidth: 0 }}>Breakout rooms</h3>
-          <button className="hv-fg" onClick={close} title="Close" style={{ background: 'none', border: 'none', color: '#6f665b', cursor: 'pointer', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic name="close" size={16} /></button>
+          <button className="hv-fg" onClick={close} title="Close" style={{ background: 'none', border: 'none', color: '#9a9084', cursor: 'pointer', width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic name="close" size={16} /></button>
         </div>
 
         {s.devMode && (
@@ -1019,7 +1028,7 @@ function BreakoutPanel() {
                         {b.name}
                         {here && <span style={{ background: 'rgba(240,139,95,.2)', color: '#f0a97f', borderRadius: 6, padding: '2px 7px', fontSize: 10, fontWeight: 800 }}>YOU'RE HERE</span>}
                       </div>
-                      <div style={{ fontSize: 11.5, color: '#8a7f70', marginTop: 3, lineHeight: 1.5 }}>
+                      <div style={{ fontSize: 11.5, color: '#968a7b', marginTop: 3, lineHeight: 1.5 }}>
                         {b.participants.length === 0
                           ? 'Nobody assigned'
                           : `${b.participants.length} assigned · ${b.participants.map(p => p.displayName).join(', ')}`}
@@ -1061,7 +1070,7 @@ function BreakoutPanel() {
                     />
                     <button className="hv-primary" onClick={app.announceBreakout} disabled={!s.breakoutAnnounce.trim()} style={{ ...primaryBtn, flexShrink: 0, opacity: s.breakoutAnnounce.trim() ? 1 : 0.5 }}>Send</button>
                   </div>
-                  <div style={{ fontSize: 11, color: '#6f665b', lineHeight: 1.5 }}>
+                  <div style={{ fontSize: 11, color: '#9a9084', lineHeight: 1.5 }}>
                     Reaches everyone in the room you're in right now{s.inBreakout ? ` (“${s.inBreakout.name}”)` : ' (the main room)'}. Visit a room to announce there.
                   </div>
                 </div>
@@ -1095,7 +1104,7 @@ function BreakoutPanel() {
                     style={{ ...fieldStyle, fontWeight: 700 }}
                   />
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {room.identities.length === 0 && <span style={{ fontSize: 11.5, color: '#6f665b' }}>Nobody yet — assign people below.</span>}
+                    {room.identities.length === 0 && <span style={{ fontSize: 11.5, color: '#9a9084' }}>Nobody yet — assign people below.</span>}
                     {room.identities.map(id => (
                       <button
                         key={id}
@@ -1115,7 +1124,7 @@ function BreakoutPanel() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={sectionHead}>Not assigned · {unassigned.length}</div>
-              {assignable.length === 0 && <div style={{ fontSize: 12, color: '#6f665b' }}>Nobody else is here yet.</div>}
+              {assignable.length === 0 && <div style={{ fontSize: 12, color: '#9a9084' }}>Nobody else is here yet.</div>}
               {assignable.map(p => {
                 const at = roomOf(p.identity);
                 return (
@@ -1145,7 +1154,7 @@ function BreakoutPanel() {
                 {s.breakoutBusy ? 'Opening…' : 'Open rooms'}
               </button>
             </div>
-            <div style={{ fontSize: 11, color: '#6f665b', lineHeight: 1.55 }}>
+            <div style={{ fontSize: 11, color: '#9a9084', lineHeight: 1.55 }}>
               Everyone assigned moves automatically. Anyone who isn't assigned stays in the main meeting. Chat inside a breakout is live only and isn't saved with the meeting.
             </div>
           </>
@@ -1242,13 +1251,13 @@ function ControlBar() {
       </button>
       <div style={{ display: 'flex', gap: 6, justifyContent: 'space-between' }}>
         {EMOJIS.map(e => (
-          <button key={e} className="hv-bg-2e" onClick={() => { app.sendReaction(e); after?.(); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, minHeight: 44, minWidth: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, color: '#f4eee5' }}><Ic name={e} size={22} /></button>
+          <button key={e} className="hv-bg-2e" aria-label={`Send reaction: ${EMOJI_LABEL[e] ?? e}`} onClick={() => { app.sendReaction(e); after?.(); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, minHeight: 44, minWidth: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, color: '#f4eee5' }}><Ic name={e} size={22} /></button>
         ))}
       </div>
     </>
   );
 
-  const sectionLabel: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: '#6f665b', padding: '6px 13px 4px' };
+  const sectionLabel: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: '#9a9084', padding: '6px 13px 4px' };
   const divider = <div style={{ borderTop: '1px solid #3a332b', margin: '6px 0 2px' }} />;
 
   const deviceMenu = (kind: 'mic' | 'cam') => (
@@ -1288,24 +1297,28 @@ function ControlBar() {
         <button
           onClick={app.toggleMic}
           title={s.micMuted && !s.canUnmute ? "The host has turned off unmuting — ask them to unmute you" : 'Mute (M)'}
+          aria-label={s.micMuted ? 'Unmute microphone' : 'Mute microphone'}
+          aria-pressed={s.micMuted}
           aria-disabled={s.micMuted && !s.canUnmute}
           style={{ alignSelf: 'stretch', flex: 1, minWidth: 0, padding: '0 5px 0 10px', background: 'none', border: 0, color: 'inherit', cursor: s.micMuted && !s.canUnmute ? 'not-allowed' : 'pointer' }}
         ><Ic name={s.micMuted ? 'micOff' : 'mic'} size={20} /></button>
         <button
           onClick={() => { setDeviceOpen(o => o === 'mic' ? null : 'mic'); setShareOpen(false); app.patch({ moreOpen: false, leaveOpen: false, reactionsOpen: false }); }}
           title="Choose microphone or speaker"
+          aria-label="Choose microphone or speaker"
           aria-expanded={deviceOpen === 'mic'}
           style={{ alignSelf: 'stretch', width: 22, padding: 0, background: deviceOpen === 'mic' ? 'rgba(255,255,255,.08)' : 'none', border: 0, borderLeft: '1px solid rgba(255,255,255,.08)', color: '#a3988a', cursor: 'pointer', borderRadius: '0 13px 13px 0' }}
         ><Ic name="chevronDown" size={10} /></button>
         {deviceOpen === 'mic' && deviceMenu('mic')}
       </div>
       <div style={{ position: 'relative', display: 'flex', ...ctrlBtn, padding: 0, overflow: 'visible', background: s.camOff ? 'rgba(201,74,56,.85)' : '#1e1a16', borderColor: s.camOff ? '#c94a38' : '#2e2822' }}>
-        <button onClick={app.toggleCam} title="Camera (V)" style={{ alignSelf: 'stretch', flex: 1, minWidth: 0, padding: '0 5px 0 10px', background: 'none', border: 0, color: 'inherit', cursor: 'pointer' }}>
+        <button onClick={app.toggleCam} title="Camera (V)" aria-label={s.camOff ? 'Turn camera on' : 'Turn camera off'} aria-pressed={s.camOff} style={{ alignSelf: 'stretch', flex: 1, minWidth: 0, padding: '0 5px 0 10px', background: 'none', border: 0, color: 'inherit', cursor: 'pointer' }}>
           <Ic name={s.camOff ? 'videoOff' : 'video'} size={20} />
         </button>
         <button
           onClick={() => { setDeviceOpen(o => o === 'cam' ? null : 'cam'); setShareOpen(false); app.patch({ moreOpen: false, leaveOpen: false, reactionsOpen: false }); }}
           title="Choose camera"
+          aria-label="Choose camera"
           aria-expanded={deviceOpen === 'cam'}
           style={{ alignSelf: 'stretch', width: 22, padding: 0, background: deviceOpen === 'cam' ? 'rgba(255,255,255,.08)' : 'none', border: 0, borderLeft: '1px solid rgba(255,255,255,.08)', color: '#a3988a', cursor: 'pointer', borderRadius: '0 13px 13px 0' }}
         ><Ic name="chevronDown" size={10} /></button>
@@ -1327,7 +1340,7 @@ function ControlBar() {
           style={{ ...ctrlBtn, background: s.sharing ? 'rgba(111,191,143,.2)' : shareOpen ? '#2e2822' : '#1e1a16', borderColor: s.sharing ? 'rgba(111,191,143,.5)' : '#2e2822', color: s.sharing ? '#6fbf8f' : '#f4eee5', opacity: s.canShare ? 1 : 0.45, cursor: s.canShare ? 'pointer' : 'not-allowed' }}
         >
           <Ic name={s.shareAudioOnly ? 'speaker' : 'share'} size={20} />
-          <span style={{ color: s.sharing ? '#6fbf8f' : '#8a7f70', alignSelf: 'flex-end', paddingBottom: 6 }}><Ic name="chevronDown" size={10} /></span>
+          <span style={{ color: s.sharing ? '#6fbf8f' : '#968a7b', alignSelf: 'flex-end', paddingBottom: 6 }}><Ic name="chevronDown" size={10} /></span>
         </button>
         {shareOpen && (
           <ShareMenu
@@ -1409,7 +1422,7 @@ function ControlBar() {
                 >
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>{q.text}</span>
-                    <span style={{ display: 'block', fontSize: 11.5, color: '#8a7f70' }}>{q.hint}</span>
+                    <span style={{ display: 'block', fontSize: 11.5, color: '#968a7b' }}>{q.hint}</span>
                   </span>
                   {on && <Ic name="check" size={15} />}
                 </button>
@@ -1506,7 +1519,7 @@ function ConnStats({ goodConn, connColor, narrow }: { goodConn: boolean; connCol
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const gathering = <span style={{ color: '#6f665b' }}>gathering…</span>;
+  const gathering = <span style={{ color: '#9a9084' }}>gathering…</span>;
   const row = (label: string, value: React.ReactNode) => (
     <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
       <span>{label}</span>
@@ -1530,7 +1543,7 @@ function ConnStats({ goodConn, connColor, narrow }: { goodConn: boolean; connCol
         {row('Packet loss', sample ? `${(sample.loss ?? 0).toFixed(1)}%` : null)}
         {row('Video', sample?.res ? `${sample.res}${sample.fps ? ` @ ${Math.round(sample.fps)}` : ''}` : null)}
       </div>
-      <div style={{ color: '#6f665b', fontSize: 11.5, marginTop: 8 }}>Updates every couple of seconds.</div>
+      <div style={{ color: '#9a9084', fontSize: 11.5, marginTop: 8 }}>Updates every couple of seconds.</div>
     </div>
   );
 }
@@ -1582,11 +1595,11 @@ export function Meeting() {
         <div style={{ display: 'flex', alignItems: 'center', gap: narrow ? 8 : 14, minWidth: 0 }}>
           <span style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: narrow ? 14.5 : 16, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: narrow ? '46vw' : undefined }}>{s.meeting?.title || 'Meeting'}</span>
           {narrow ? (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#8a7f70', fontSize: 12.5, fontWeight: 600, flexShrink: 0 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#968a7b', fontSize: 12.5, fontWeight: 600, flexShrink: 0 }}>
               <Ic name="users" size={13} /> {tiles.length}
             </span>
           ) : (
-            <span style={{ color: '#8a7f70', fontSize: 13.5, fontVariantNumeric: 'tabular-nums' }}>{fmtElapsed(s.elapsedS)}</span>
+            <span style={{ color: '#968a7b', fontSize: 13.5, fontVariantNumeric: 'tabular-nums' }}>{fmtElapsed(s.elapsedS)}</span>
           )}
           {s.meeting?.locked && !narrow && (
             <span title="Meeting is locked" style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(224,96,79,.12)', border: '1px solid rgba(224,96,79,.35)', color: '#e0836f', borderRadius: 99, padding: '4px 11px', fontSize: 11.5, fontWeight: 700 }}>
@@ -1624,7 +1637,7 @@ export function Meeting() {
           {s.view === 'grid' && !hasScreenShare ? <GridView /> : <SpeakerView />}
           {s.reconnecting && (
             <div style={{ position: 'absolute', left: '50%', top: 14, transform: 'translateX(-50%)', zIndex: 30, background: 'rgba(36,31,26,.95)', border: '1px solid rgba(240,180,95,.4)', borderRadius: 14, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 12px 40px rgba(0,0,0,.5)' }}>
-              <span style={{ width: 16, height: 16, border: '2px solid rgba(240,180,95,.3)', borderTopColor: '#e0b45f', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+              <span className="spinner" style={{ width: 16, height: 16, border: '2px solid rgba(240,180,95,.3)', borderTopColor: '#e0b45f', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
               <div>
                 <div style={{ fontWeight: 700, fontSize: 13.5, color: '#e0b45f' }}>Reconnecting…</div>
                 <div style={{ color: '#a3988a', fontSize: 12 }}>Hang tight — we're getting you back.</div>
@@ -1647,17 +1660,17 @@ export function Meeting() {
       {/* Recording indicator — visible to everyone, even when the bars fade */}
       {s.recOn && (
         <div style={{ position: 'absolute', top: `calc(${narrow ? 9 : 14}px + var(--sat))`, left: '50%', transform: 'translateX(-50%)', zIndex: 26, display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(36,31,26,.92)', border: '1px solid rgba(224,96,79,.5)', borderRadius: 99, padding: '6px 14px', boxShadow: '0 8px 30px rgba(0,0,0,.35)' }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#e0604f', animation: 'recBlink 1.2s infinite' }} />
+          <span className="rec-dot" style={{ width: 8, height: 8, borderRadius: '50%', background: '#e0604f', animation: 'recBlink 1.2s infinite' }} />
           <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.09em', color: '#e0836f' }}>REC</span>
         </div>
       )}
 
       {/* Live captions overlay */}
       {s.captionsOn && s.captionLines.length > 0 && (
-        <div style={{ position: 'absolute', left: '50%', bottom: `calc(${(narrow ? BAR_H_NARROW : BAR_H_WIDE) + 10}px + var(--sab))`, transform: 'translateX(-50%)', zIndex: 34, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center', maxWidth: narrow ? 'calc(100% - 20px)' : 'min(70%, 720px)', pointerEvents: 'none' }}>
+        <div role="region" aria-label="Live captions" aria-live="polite" aria-atomic="false" style={{ position: 'absolute', left: '50%', bottom: `calc(${(narrow ? BAR_H_NARROW : BAR_H_WIDE) + 10}px + var(--sab))`, transform: 'translateX(-50%)', zIndex: 34, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center', maxWidth: narrow ? 'calc(100% - 20px)' : 'min(70%, 720px)', pointerEvents: 'none' }}>
           {s.captionLines.map(l => (
             <div key={l.id} style={{ background: 'rgba(14,12,10,.8)', backdropFilter: 'blur(4px)', borderRadius: 10, padding: '7px 14px', fontSize: 14.5, lineHeight: 1.4, color: l.interim ? '#c9beb0' : '#f4eee5', textAlign: 'center', animation: 'fadeUp .2s ease' }}>
-              <span style={{ color: '#f0a97f', fontWeight: 700, marginRight: 8 }}>{l.name}</span>{l.text}
+              <span style={{ color: '#f0a97f', fontWeight: 700, marginRight: 8 }}>{l.name}<span className="sr-only">: </span></span>{l.text}
             </div>
           ))}
         </div>
@@ -1725,8 +1738,10 @@ export function Meeting() {
           </span>
         </div>
       )}
-      {/* Toasts */}
-      <div style={{ position: 'absolute', left: narrow ? 'calc(10px + var(--sal))' : 18, right: narrow ? 'calc(10px + var(--sar))' : undefined, bottom: `calc(${(narrow ? BAR_H_NARROW : BAR_H_WIDE) + 8}px + var(--sab))`, display: 'flex', flexDirection: 'column', gap: 8, zIndex: 36 }}>
+      {/* Toasts. This is the only channel for being muted by the host, chat being
+          turned off, someone waiting at the door, recording starting and every
+          error — so it has to be announced, not just drawn. */}
+      <div role="status" aria-live="polite" aria-atomic="false" style={{ position: 'absolute', left: narrow ? 'calc(10px + var(--sal))' : 18, right: narrow ? 'calc(10px + var(--sar))' : undefined, bottom: `calc(${(narrow ? BAR_H_NARROW : BAR_H_WIDE) + 8}px + var(--sab))`, display: 'flex', flexDirection: 'column', gap: 8, zIndex: 36 }}>
         {s.toasts.map(t => (
           <div key={t.id} style={{ background: '#241f1a', border: '1px solid #3a332b', borderRadius: 12, padding: '11px 15px', fontSize: 13, boxShadow: '0 8px 30px rgba(0,0,0,.4)', animation: 'fadeUp .25s ease', display: 'flex', alignItems: 'center', gap: 12, maxWidth: narrow ? '100%' : 320 }}>
             <span>{t.text}</span>

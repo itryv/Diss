@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useApp, PALETTE } from '../store';
+import { useApp, PALETTE, SCHED_OPTIONS } from '../store';
 import type { AppState, VideoQuality } from '../store';
 import { DevicePicker } from './Lobby';
 import { api, meetingLink, recordingFileUrl } from '../api';
@@ -12,20 +12,48 @@ const inputStyle: React.CSSProperties = { width: '100%', background: '#1c1815', 
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 13, fontWeight: 600, color: '#a3988a', marginBottom: 7 };
 const selectStyle: React.CSSProperties = { width: '100%', background: '#1c1815', border: '1px solid #3a332b', borderRadius: 12, padding: '13px 10px', color: '#f4eee5', fontSize: 14, fontFamily: 'inherit', outline: 'none' };
 
-export function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+/**
+ * A real switch, not a clickable span.
+ *
+ * As a <span onClick> this was the sole control for roughly fifteen settings
+ * across Settings, the schedule form, the lobby and the admin dashboard, and
+ * none of them could be reached from the keyboard at all. The <label> wrapper
+ * did not help either: a label with no form control inside it is inert, so even
+ * clicking the words did nothing — only the 38x22 pill was a hit target.
+ *
+ * `aria-label` is optional because ToggleRow labels it by association instead.
+ */
+export function Toggle({ on, onToggle, label }: { on: boolean; onToggle: () => void; label?: string }) {
   return (
-    <span onClick={onToggle} style={{ width: 38, height: 22, borderRadius: 99, background: on ? '#f08b5f' : '#3a332b', position: 'relative', transition: 'background .15s', flexShrink: 0, cursor: 'pointer' }}>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={onToggle}
+      style={{ width: 38, height: 22, borderRadius: 99, background: on ? '#f08b5f' : '#3a332b', position: 'relative', transition: 'background .15s', flexShrink: 0, cursor: 'pointer', border: 'none', padding: 0 }}
+    >
       <span style={{ position: 'absolute', top: 3, left: on ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#f4eee5', transition: 'left .15s' }} />
-    </span>
+    </button>
   );
 }
 
 function ToggleRow({ label, on, onToggle }: { label: string; on: boolean; onToggle: () => void }) {
+  // The whole row is the control, so the label text is clickable and the touch
+  // target clears 44px, rather than being the pill alone.
   return (
-    <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, cursor: 'pointer', padding: '4px 0' }}>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={onToggle}
+      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, width: '100%', minHeight: 44, background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', padding: '4px 0' }}
+    >
       <span style={{ fontSize: 14, color: '#c9beb0' }}>{label}</span>
-      <Toggle on={on} onToggle={onToggle} />
-    </label>
+      <span aria-hidden="true" style={{ width: 38, height: 22, borderRadius: 99, background: on ? '#f08b5f' : '#3a332b', position: 'relative', transition: 'background .15s', flexShrink: 0 }}>
+        <span style={{ position: 'absolute', top: 3, left: on ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#f4eee5', transition: 'left .15s' }} />
+      </span>
+    </button>
   );
 }
 
@@ -84,7 +112,7 @@ export function ShellNav({ row = false }: { row?: boolean }) {
         <span style={{ width: 32, height: 32, borderRadius: '50%', background: '#8a5a44', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 12, flexShrink: 0 }}>{(s.user?.name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}</span>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.user?.name ?? 'Guest'}</div>
-          <div style={{ fontSize: 12, color: '#8a7f70', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.user?.email ?? ''}</div>
+          <div style={{ fontSize: 12, color: '#968a7b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.user?.email ?? ''}</div>
         </div>
       </div>
     </nav>
@@ -114,7 +142,7 @@ function Dashboard() {
     <div style={{ animation: 'fadeUp .35s ease' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <h1 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 32, margin: 0 }}>{greeting}, {firstName}</h1>
-        <div style={{ color: '#8a7f70', fontSize: 15, fontVariantNumeric: 'tabular-nums' }}>{s.clock} · {s.dateStr}</div>
+        <div style={{ color: '#968a7b', fontSize: 15, fontVariantNumeric: 'tabular-nums' }}>{s.clock} · {s.dateStr}</div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginTop: 26 }}>
         <div style={{ position: 'relative' }}>
@@ -135,12 +163,12 @@ function Dashboard() {
         <button className="hv-bg-2a" onClick={() => app.patch({ joinModal: true, code: '', codeInvalid: false })} style={cardBtn}>
           <Ic name="arrowRight" size={26} />
           <span style={{ fontWeight: 700, fontSize: 17 }}>Join</span>
-          <span style={{ fontSize: 13, color: '#8a7f70' }}>With a code or link</span>
+          <span style={{ fontSize: 13, color: '#968a7b' }}>With a code or link</span>
         </button>
         <button className="hv-bg-2a" onClick={() => app.go('schedule')} style={cardBtn}>
           <Ic name="calendar" size={26} />
           <span style={{ fontWeight: 700, fontSize: 17 }}>Schedule</span>
-          <span style={{ fontSize: 13, color: '#8a7f70' }}>Plan it, share the link</span>
+          <span style={{ fontSize: 13, color: '#968a7b' }}>Plan it, share the link</span>
         </button>
       </div>
       {upNext && (
@@ -156,10 +184,10 @@ function Dashboard() {
       <div style={{ marginTop: 30 }}>
         <h3 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 16, margin: '0 0 12px', color: '#c9beb0' }}>Your meetings</h3>
         {s.meetingsLoading && s.meetings.length === 0 && (
-          <div style={{ color: '#8a7f70', fontSize: 14 }}>Loading…</div>
+          <div style={{ color: '#968a7b', fontSize: 14 }}>Loading…</div>
         )}
         {!s.meetingsLoading && s.meetings.length === 0 && (
-          <div style={{ color: '#8a7f70', fontSize: 14, background: '#1e1a16', border: '1px solid #2e2822', borderRadius: 14, padding: '16px 18px' }}>
+          <div style={{ color: '#968a7b', fontSize: 14, background: '#1e1a16', border: '1px solid #2e2822', borderRadius: 14, padding: '16px 18px' }}>
             Nothing on the books yet — start a meeting or schedule one.
           </div>
         )}
@@ -168,11 +196,11 @@ function Dashboard() {
             <div key={m.id} className="hv-border" style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#1e1a16', border: '1px solid #2e2822', borderRadius: 14, padding: '13px 16px' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600, fontSize: 14.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.title || 'Untitled meeting'}</div>
-                <div style={{ color: '#8a7f70', fontSize: 12.5 }}>{fmtWhen(m)} · <span style={{ fontFamily: 'monospace' }}>{m.code}</span></div>
+                <div style={{ color: '#968a7b', fontSize: 12.5 }}>{fmtWhen(m)} · <span style={{ fontFamily: 'monospace' }}>{m.code}</span></div>
               </div>
               <button onClick={() => app.openMeeting(m)} style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 9, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Join</button>
-              <button className="hv-fg" onClick={() => { navigator.clipboard?.writeText(meetingLink(m.code)); app.toast('Invite link copied'); }} title="Copy invite link" style={{ background: 'none', border: 'none', color: '#6f665b', cursor: 'pointer', padding: 4 }}><Ic name="link" size={16} /></button>
-              <button className="hv-fg" onClick={() => app.deleteMeeting(m.id)} title="Delete meeting" style={{ background: 'none', border: 'none', color: '#6f665b', cursor: 'pointer', padding: 4 }}><Ic name="close" size={15} /></button>
+              <button className="hv-fg" onClick={() => { navigator.clipboard?.writeText(meetingLink(m.code)); app.toast('Invite link copied'); }} title="Copy invite link" style={{ background: 'none', border: 'none', color: '#9a9084', cursor: 'pointer', padding: 4 }}><Ic name="link" size={16} /></button>
+              <button className="hv-fg" onClick={() => app.deleteMeeting(m.id)} title="Delete meeting" style={{ background: 'none', border: 'none', color: '#9a9084', cursor: 'pointer', padding: 4 }}><Ic name="close" size={15} /></button>
             </div>
           ))}
         </div>
@@ -185,20 +213,35 @@ function Schedule() {
   const app = useApp();
   const s = app.s;
   const toggle = useToggleList('schedOpts');
-  const opts = ['Waiting room', 'Guests can join before host', 'Participants start muted', 'Non-hosts can share screen'];
+  // Today, local — the min= below stops anyone scheduling into the past.
+  const today = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const minDate = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
   return (
     <div style={{ maxWidth: 560, animation: 'fadeUp .35s ease' }}>
       <h1 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 28, margin: '0 0 24px' }}>Schedule a meeting</h1>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
-          <label style={labelStyle}>Title</label>
-          <input value={s.schedTitle} onChange={e => app.patch({ schedTitle: e.target.value })} placeholder="Weekly team sync" style={inputStyle} />
+          <label htmlFor="sched-title" style={labelStyle}>Title</label>
+          <input id="sched-title" value={s.schedTitle} onChange={e => app.patch({ schedTitle: e.target.value })} placeholder="Weekly team sync" style={inputStyle} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 10 }}>
-          <div><label style={labelStyle}>Date</label><input value={new Date().toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} readOnly style={{ ...inputStyle, fontSize: 14 }} /></div>
           <div>
-            <label style={labelStyle}>Start</label>
-            <select value={s.schedTime} onChange={e => app.patch({ schedTime: e.target.value })} style={selectStyle}>
+            <label htmlFor="sched-date" style={labelStyle}>Date</label>
+            {/* Was readOnly and hardcoded to today, so nothing could be
+                scheduled for any other day — the feature did not work. */}
+            <input
+              id="sched-date"
+              type="date"
+              min={minDate}
+              value={s.schedDate}
+              onChange={e => app.patch({ schedDate: e.target.value })}
+              style={{ ...inputStyle, fontSize: 14 }}
+            />
+          </div>
+          <div>
+            <label htmlFor="sched-time" style={labelStyle}>Start</label>
+            <select id="sched-time" value={s.schedTime} onChange={e => app.patch({ schedTime: e.target.value })} style={selectStyle}>
               {['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '15:30', '16:00', '17:00'].map(t => {
                 const [h, m] = t.split(':').map(Number);
                 const label = new Date(2000, 0, 1, h, m).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -207,14 +250,14 @@ function Schedule() {
             </select>
           </div>
         </div>
-        <div style={{ fontSize: 13, color: '#8a7f70' }}>Time zone: <span style={{ color: '#c9beb0', fontWeight: 600 }}>{Intl.DateTimeFormat().resolvedOptions().timeZone} (auto-detected)</span></div>
+        <div style={{ fontSize: 13, color: '#968a7b' }}>Time zone: <span style={{ color: '#c9beb0', fontWeight: 600 }}>{Intl.DateTimeFormat().resolvedOptions().timeZone} (auto-detected)</span></div>
         <div style={{ background: '#1e1a16', border: '1px solid #2e2822', borderRadius: 14 }}>
           <button onClick={() => app.patch({ optionsOpen: !s.optionsOpen })} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'none', border: 'none', color: '#f4eee5', padding: '15px 16px', fontSize: 14.5, fontWeight: 600, cursor: 'pointer' }}>
-            Meeting options<span style={{ color: '#8a7f70' }}><Ic name={s.optionsOpen ? 'chevronUp' : 'chevronDown'} size={14} /></span>
+            Meeting options<span style={{ color: '#968a7b' }}><Ic name={s.optionsOpen ? 'chevronUp' : 'chevronDown'} size={14} /></span>
           </button>
           {s.optionsOpen && (
             <div style={{ padding: '2px 16px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {opts.map((label, i) => <ToggleRow key={label} label={label} on={s.schedOpts[i]} onToggle={toggle(i)} />)}
+              {SCHED_OPTIONS.map((opt, i) => <ToggleRow key={opt.field} label={opt.label} on={s.schedOpts[i]} onToggle={toggle(i)} />)}
             </div>
           )}
         </div>
@@ -265,7 +308,7 @@ function Detail() {
   });
   return (
     <div style={{ maxWidth: 640, animation: 'fadeUp .35s ease' }}>
-      <button className="hv-fg" onClick={() => app.go('dash')} style={{ background: 'none', border: 'none', color: '#8a7f70', fontSize: 14, cursor: 'pointer', padding: 0, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 6 }}>
+      <button className="hv-fg" onClick={() => app.go('dash')} style={{ background: 'none', border: 'none', color: '#968a7b', fontSize: 14, cursor: 'pointer', padding: 0, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 6 }}>
         <Ic name="arrowLeft" size={15} /> Back
       </button>
       <h1 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 28, margin: '0 0 4px' }}>Sprint retro</h1>
@@ -282,7 +325,7 @@ function Detail() {
           <div key={a.name} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '8px 4px' }}>
             <img src={a.img} alt="" style={{ width: 30, height: 30, borderRadius: '50%', background: a.color }} />
             <span style={{ fontSize: 14.5, fontWeight: 500 }}>{a.name}</span>
-            <span style={{ color: '#6f665b', fontSize: 12.5, marginLeft: 'auto' }}>{a.role}</span>
+            <span style={{ color: '#9a9084', fontSize: 12.5, marginLeft: 'auto' }}>{a.role}</span>
           </div>
         ))}
       </div>
@@ -334,10 +377,10 @@ function Recordings() {
   return (
     <div style={{ animation: 'fadeUp .35s ease' }}>
       <h1 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 28, margin: '0 0 24px' }}>Recordings</h1>
-      {recs === null && <div style={{ color: '#8a7f70', fontSize: 14 }}>Loading…</div>}
+      {recs === null && <div style={{ color: '#968a7b', fontSize: 14 }}>Loading…</div>}
       {error && <div style={{ color: '#e0836f', fontSize: 14 }}>{error}</div>}
       {recs !== null && !error && recs.length === 0 && (
-        <div style={{ color: '#8a7f70', fontSize: 14, background: '#1e1a16', border: '1px solid #2e2822', borderRadius: 14, padding: '16px 18px', maxWidth: 640 }}>
+        <div style={{ color: '#968a7b', fontSize: 14, background: '#1e1a16', border: '1px solid #2e2822', borderRadius: 14, padding: '16px 18px', maxWidth: 640 }}>
           No recordings yet — start one from the More menu during a meeting.
         </div>
       )}
@@ -354,16 +397,16 @@ function Recordings() {
             </button>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: 14.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.title || r.meetingCode}</div>
-              <div style={{ color: '#8a7f70', fontSize: 12.5, marginTop: 2 }}>{fmtRecDate(r)} · {fmtRecDuration(r)} · {fmtBytes(r.sizeBytes)}</div>
+              <div style={{ color: '#968a7b', fontSize: 12.5, marginTop: 2 }}>{fmtRecDate(r)} · {fmtRecDuration(r)} · {fmtBytes(r.sizeBytes)}</div>
             </div>
-            <button className="hv-fg" onClick={() => window.open(recordingFileUrl(r.id), '_blank')} title="Open in a new tab" style={{ background: 'none', border: 'none', color: '#6f665b', cursor: 'pointer', padding: 4 }}><Ic name="share" size={16} /></button>
+            <button className="hv-fg" onClick={() => window.open(recordingFileUrl(r.id), '_blank')} title="Open in a new tab" style={{ background: 'none', border: 'none', color: '#9a9084', cursor: 'pointer', padding: 4 }}><Ic name="share" size={16} /></button>
             {confirmId === r.id ? (
               <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 <button className="hv-danger" onClick={() => remove(r)} style={{ background: '#c94a38', border: 'none', color: '#fff', borderRadius: 8, padding: '7px 12px', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Delete forever</button>
-                <button className="hv-fg" onClick={() => setConfirmId(null)} style={{ background: 'none', border: '1px solid #3a332b', color: '#8a7f70', borderRadius: 8, padding: '6px 10px', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>Keep</button>
+                <button className="hv-fg" onClick={() => setConfirmId(null)} style={{ background: 'none', border: '1px solid #3a332b', color: '#968a7b', borderRadius: 8, padding: '6px 10px', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>Keep</button>
               </span>
             ) : (
-              <button className="hv-fg" onClick={() => setConfirmId(r.id)} title="Delete recording" style={{ background: 'none', border: 'none', color: '#6f665b', cursor: 'pointer', padding: 4 }}><Ic name="close" size={15} /></button>
+              <button className="hv-fg" onClick={() => setConfirmId(r.id)} title="Delete recording" style={{ background: 'none', border: 'none', color: '#9a9084', cursor: 'pointer', padding: 4 }}><Ic name="close" size={15} /></button>
             )}
           </div>
         ))}
@@ -373,7 +416,7 @@ function Recordings() {
           <div onClick={e => e.stopPropagation()} style={{ width: 'min(880px, 92vw)', background: '#1a1613', border: '1px solid #3a332b', borderRadius: 18, overflow: 'hidden', animation: 'fadeUp .25s ease' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px' }}>
               <div style={{ fontWeight: 700, fontSize: 15 }}>{playing.title || playing.meetingCode}</div>
-              <button className="hv-fg" onClick={() => setPlaying(null)} style={{ background: 'none', border: 'none', color: '#6f665b', cursor: 'pointer', padding: 4 }}><Ic name="close" size={16} /></button>
+              <button className="hv-fg" onClick={() => setPlaying(null)} style={{ background: 'none', border: 'none', color: '#9a9084', cursor: 'pointer', padding: 4 }}><Ic name="close" size={16} /></button>
             </div>
             <video src={recordingFileUrl(playing.id)} controls autoPlay style={{ display: 'block', width: '100%', aspectRatio: '16/9', background: '#0e0c0a' }} />
           </div>
@@ -410,7 +453,7 @@ function Settings() {
           <div><label style={labelStyle}>Display name</label><input value={s.user?.name ?? ''} readOnly style={{ ...inputStyle, maxWidth: 340, padding: '12px 14px' }} /></div>
           <div>
             <label style={labelStyle}>Email</label>
-            <input value={s.user?.email ?? ''} readOnly style={{ ...inputStyle, maxWidth: 340, padding: '12px 14px', background: '#1a1613', border: '1px solid #2e2822', color: '#8a7f70' }} />
+            <input value={s.user?.email ?? ''} readOnly style={{ ...inputStyle, maxWidth: 340, padding: '12px 14px', background: '#1a1613', border: '1px solid #2e2822', color: '#968a7b' }} />
           </div>
         </div>
       )}
@@ -428,7 +471,7 @@ function Settings() {
               <option value="high">Hi-Res — 1080p when bandwidth allows</option>
               <option value="saver">Data saver — 360p, uses less bandwidth</option>
             </select>
-            <div style={{ color: '#6f665b', fontSize: 12, marginTop: 6 }}>Applies straight away, even mid-meeting.</div>
+            <div style={{ color: '#9a9084', fontSize: 12, marginTop: 6 }}>Applies straight away, even mid-meeting.</div>
           </div>
           <ToggleRow label="Mute my mic when I join" on={s.joinMuted} onToggle={() => app.toggleJoinPref('muted')} />
           <ToggleRow label="Turn my camera off when I join" on={s.joinCamOff} onToggle={() => app.toggleJoinPref('camOff')} />
@@ -440,7 +483,7 @@ function Settings() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 560 }}>
           <div>
             <div style={{ fontSize: 14.5, fontWeight: 600, marginBottom: 3 }}>Permissions</div>
-            <div style={{ fontSize: 12.5, color: '#8a7f70', marginBottom: 12 }}>What Diss needs from your Mac, and how to fix anything that's blocked.</div>
+            <div style={{ fontSize: 12.5, color: '#968a7b', marginBottom: 12 }}>What Diss needs from your Mac, and how to fix anything that's blocked.</div>
             <PermissionsPanel />
           </div>
         </div>
@@ -450,7 +493,7 @@ function Settings() {
           <div style={{ background: '#1e1a16', border: '1px solid #2e2822', borderRadius: 14, padding: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600, fontSize: 14 }}>Signed in as</div>
-              <div style={{ color: '#8a7f70', fontSize: 12.5 }}>{s.user?.email ?? '—'}</div>
+              <div style={{ color: '#968a7b', fontSize: 12.5 }}>{s.user?.email ?? '—'}</div>
             </div>
             <button className="hv-bg-2a" onClick={app.signOut} style={{ background: '#241f1a', border: '1px solid #362f28', color: '#f4eee5', borderRadius: 10, padding: '9px 15px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Sign out</button>
           </div>
@@ -479,7 +522,7 @@ function JoinModal() {
         {s.codeInvalid && <div style={{ color: '#e0836f', fontSize: 13, marginTop: 8 }}>We couldn't find that meeting — check the code and try again.</div>}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 18 }}>
           <button onClick={() => app.patch({ joinModal: false })} style={{ background: 'none', border: '1px solid #3a332b', color: '#c9beb0', borderRadius: 11, padding: '11px 18px', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={join} disabled={!ok && s.code.length === 0} style={{ background: ok ? '#f08b5f' : '#2e2822', color: ok ? '#241209' : '#6f665b', border: 'none', borderRadius: 11, padding: '11px 22px', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Join</button>
+          <button onClick={join} disabled={!ok && s.code.length === 0} style={{ background: ok ? '#f08b5f' : '#2e2822', color: ok ? '#241209' : '#9a9084', border: 'none', borderRadius: 11, padding: '11px 22px', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Join</button>
         </div>
       </div>
     </div>

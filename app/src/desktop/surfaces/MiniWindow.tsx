@@ -68,7 +68,7 @@ export function MiniWindow() {
               </div>
             </div>
           </div>
-          <div style={{ color: '#6f665b', fontSize: 12, marginTop: 10, maxWidth: 280, lineHeight: 1.5 }}>Speaking ring + unread-chat dot on expand.</div>
+          <div style={{ color: '#9a9084', fontSize: 12, marginTop: 10, maxWidth: 280, lineHeight: 1.5 }}>Speaking ring + unread-chat dot on expand.</div>
         </div>
 
         {/* M — 2-up with self view */}
@@ -84,7 +84,7 @@ export function MiniWindow() {
               <span style={{ position: 'absolute', left: 8, bottom: 8, background: 'rgba(14,12,10,.72)', borderRadius: 99, padding: '3px 9px', fontSize: 10.5, fontWeight: 600 }}>You</span>
             </div>
           </div>
-          <div style={{ color: '#6f665b', fontSize: 12, marginTop: 10, maxWidth: 360, lineHeight: 1.5 }}>Answering open question 2: self-view only at M and larger — at S it costs more than it tells you.</div>
+          <div style={{ color: '#9a9084', fontSize: 12, marginTop: 10, maxWidth: 360, lineHeight: 1.5 }}>Answering open question 2: self-view only at M and larger — at S it costs more than it tells you.</div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>

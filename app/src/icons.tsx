@@ -59,8 +59,11 @@ export type IconName = keyof typeof PATHS;
 
 export function Ic({ name, size = 20, color = 'currentColor', style }: { name: IconName; size?: number; color?: string; style?: React.CSSProperties }) {
   const fill = FILLED[name as string];
-  const svg = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="${fill ? color : 'none'}" stroke="${fill ? 'none' : color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block">${PATHS[name as string]}</svg>`;
-  return <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', ...style }} dangerouslySetInnerHTML={{ __html: svg }} />;
+  // aria-hidden + focusable="false": these are decorative. The accessible name
+  // belongs to the button around the icon, and without this a screen reader can
+  // announce the raw SVG alongside it, or tab into it in some browsers.
+  const svg = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="${fill ? color : 'none'}" stroke="${fill ? 'none' : color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block" aria-hidden="true" focusable="false">${PATHS[name as string]}</svg>`;
+  return <span aria-hidden="true" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', ...style }} dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
 export function Lbl({ name, text, size = 16 }: { name: IconName; text: string; size?: number }) {

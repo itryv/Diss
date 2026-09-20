@@ -25,16 +25,24 @@ export function AvControlButton({ kind, size = 48 }: { kind: 'mic' | 'cam'; size
 }
 
 function PrefRow({ label, hint, on, onToggle }: { label: string; hint?: string; on: boolean; onToggle: () => void }) {
+  // Was a <label> wrapping a clickable <span>: unreachable by keyboard, and the
+  // label did nothing because it contained no form control.
   return (
-    <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, cursor: 'pointer', padding: '2px 0' }}>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={onToggle}
+      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, width: '100%', minHeight: 44, background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', padding: '2px 0' }}
+    >
       <span style={{ minWidth: 0 }}>
         <span style={{ display: 'block', fontSize: 13.5, color: '#c9beb0', fontWeight: 600 }}>{label}</span>
-        {hint && <span style={{ display: 'block', fontSize: 11.5, color: '#6f665b', marginTop: 1 }}>{hint}</span>}
+        {hint && <span style={{ display: 'block', fontSize: 11.5, color: '#9a9084', marginTop: 1 }}>{hint}</span>}
       </span>
-      <span onClick={onToggle} style={{ width: 38, height: 22, borderRadius: 99, background: on ? '#f08b5f' : '#3a332b', position: 'relative', transition: 'background .15s', flexShrink: 0, cursor: 'pointer' }}>
+      <span aria-hidden="true" style={{ width: 38, height: 22, borderRadius: 99, background: on ? '#f08b5f' : '#3a332b', position: 'relative', transition: 'background .15s', flexShrink: 0 }}>
         <span style={{ position: 'absolute', top: 3, left: on ? 19 : 3, width: 16, height: 16, borderRadius: '50%', background: '#f4eee5', transition: 'left .15s' }} />
       </span>
-    </label>
+    </button>
   );
 }
 
@@ -110,7 +118,7 @@ export function DevicePicker({ kind, style }: { kind: DeviceKind; style?: React.
 
   if (list.length === 0 || !labelled) {
     return (
-      <select style={{ ...base, color: '#6f665b' }} disabled value="">
+      <select style={{ ...base, color: '#9a9084' }} disabled value="">
         <option value="">{DEVICE_LABEL[kind]} — allow access to choose</option>
       </select>
     );
@@ -229,7 +237,7 @@ export function Lobby() {
         <div>
           <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 24 }}>{meeting?.title || 'Meeting'}</div>
           <div style={{ color: '#a3988a', fontSize: 14, marginTop: 3 }}>hosted by {isHost ? 'you' : meeting?.hostName || '…'}</div>
-          {meeting && <div style={{ color: '#6f665b', fontSize: 12.5, marginTop: 4, fontFamily: 'monospace' }}>{meeting.code}</div>}
+          {meeting && <div style={{ color: '#9a9084', fontSize: 12.5, marginTop: 4, fontFamily: 'monospace' }}>{meeting.code}</div>}
         </div>
         <div>
           <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#a3988a', marginBottom: 7 }}>Your name</label>
@@ -258,7 +266,7 @@ export function Lobby() {
         </button>
         {!meeting && <div style={{ color: '#e0836f', fontSize: 13, textAlign: 'center' }}>No meeting selected — go back and pick one or enter a code.</div>}
         {s.joinError && <div style={{ color: '#e0836f', fontSize: 13, textAlign: 'center' }}>{s.joinError}</div>}
-        <button className="hv-fg" onClick={() => app.go('landing')} style={{ background: 'none', border: 'none', color: '#8a7f70', fontSize: 13.5, cursor: 'pointer' }}>Cancel</button>
+        <button className="hv-fg" onClick={() => app.go('landing')} style={{ background: 'none', border: 'none', color: '#968a7b', fontSize: 13.5, cursor: 'pointer' }}>Cancel</button>
       </div>
     </section>
   );

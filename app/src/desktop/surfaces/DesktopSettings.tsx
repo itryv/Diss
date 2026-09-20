@@ -9,7 +9,7 @@ function SettingRow({ title, hint, on, onClick, last }: { title: string; hint: s
     <div className="dk-row" onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '17px 20px', cursor: 'pointer', borderBottom: last ? undefined : '1px solid #241f1a' }}>
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 14.5, fontWeight: 600 }}>{title}</div>
-        <div style={{ fontSize: 12.5, color: '#8a7f70', marginTop: 2 }}>{hint}</div>
+        <div style={{ fontSize: 12.5, color: '#968a7b', marginTop: 2 }}>{hint}</div>
       </div>
       <Switch on={on} />
     </div>
@@ -47,7 +47,7 @@ export function DesktopSettings() {
 
       <div style={{ marginTop: 26, background: '#1e1a16', border: '1px solid #2e2822', borderRadius: 16, padding: 20 }}>
         <div style={{ fontSize: 14.5, fontWeight: 600, marginBottom: 3 }}>Global shortcuts</div>
-        <div style={{ fontSize: 12.5, color: '#8a7f70', marginBottom: 18 }}>Work system-wide, even when Diss isn't focused.</div>
+        <div style={{ fontSize: 12.5, color: '#968a7b', marginBottom: 18 }}>Work system-wide, even when Diss isn't focused.</div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 14 }}>
           <span style={{ fontSize: 13.5, flex: 1 }}>Mute / unmute in the current meeting</span>
@@ -55,7 +55,7 @@ export function DesktopSettings() {
             <span style={{ fontFamily: MONO, fontSize: 13, color: s.recording ? '#a3988a' : '#f0a97f' }}>
               {s.recording ? 'Press keys…' : s.combo || defaultCombo}
             </span>
-            <span style={{ fontSize: 11, color: '#6f665b' }}>{s.recording ? 'Esc to cancel' : 'Click to change'}</span>
+            <span style={{ fontSize: 11, color: '#9a9084' }}>{s.recording ? 'Esc to cancel' : 'Click to change'}</span>
           </div>
           <button onClick={() => set({ combo: null, recording: false })} style={{ background: 'none', border: 'none', color: '#a3988a', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}>Reset</button>
         </div>
@@ -68,13 +68,13 @@ export function DesktopSettings() {
           <span style={{ width: 52 }} />
         </div>
 
-        <div style={{ marginTop: 16, fontSize: 12.5, color: '#6f665b', lineHeight: 1.5 }}>Leaving a meeting has no global shortcut on purpose — it's too easy to fire blind.</div>
+        <div style={{ marginTop: 16, fontSize: 12.5, color: '#9a9084', lineHeight: 1.5 }}>Leaving a meeting has no global shortcut on purpose — it's too easy to fire blind.</div>
       </div>
 
       <div style={{ marginTop: 26, display: 'flex', alignItems: 'center', gap: 16, background: '#1e1a16', border: '1px solid #2e2822', borderRadius: 16, padding: '18px 20px' }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14.5, fontWeight: 600 }}>Diss updates itself automatically</div>
-          <div style={{ fontSize: 12.5, color: '#8a7f70', marginTop: 2 }}>Version 1.4.2 · up to date</div>
+          <div style={{ fontSize: 12.5, color: '#968a7b', marginTop: 2 }}>Version 1.4.2 · up to date</div>
         </div>
         <button className="hv-bg-2e" style={{ background: '#241f1a', border: '1px solid #3a332b', color: '#f4eee5', borderRadius: 11, padding: '10px 18px', fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Check now</button>
       </div>

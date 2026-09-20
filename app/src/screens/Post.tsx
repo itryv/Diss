@@ -54,10 +54,10 @@ export function Post() {
         )}
         {s.ratedDone && <div style={{ color: '#6fbf8f', fontSize: 13, fontWeight: 600 }}>Thanks — that helps us a lot</div>}
         <div style={{ marginTop: 10 }}>
-          <a href="#" onClick={e => { e.preventDefault(); app.patch({ ratedDone: true }); }} style={{ fontSize: 12, color: '#6f665b' }}>Skip</a>
+          <a href="#" onClick={e => { e.preventDefault(); app.patch({ ratedDone: true }); }} style={{ fontSize: 12, color: '#9a9084' }}>Skip</a>
         </div>
       </div>
-      <div style={{ color: '#6f665b', fontSize: 13 }}>That was <span style={{ color: '#a3988a', fontWeight: 600 }}>{fmtElapsed(s.elapsedS)}</span> well spent.</div>
+      <div style={{ color: '#9a9084', fontSize: 13 }}>That was <span style={{ color: '#a3988a', fontWeight: 600 }}>{fmtElapsed(s.elapsedS)}</span> well spent.</div>
     </section>
   );
 }

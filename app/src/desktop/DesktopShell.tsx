@@ -127,7 +127,7 @@ export function DesktopShell() {
         <div style={{ position: 'fixed', right: 20, bottom: mac ? 20 : 66, zIndex: 200, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
           {s.navOpen && (
             <div style={{ background: '#241f1a', border: '1px solid #3a332b', borderRadius: 14, padding: 6, boxShadow: '0 12px 40px rgba(0,0,0,.6)', display: 'flex', flexDirection: 'column', minWidth: 210 }}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#6f665b', padding: '8px 12px 6px' }}>Platform</div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9a9084', padding: '8px 12px 6px' }}>Platform</div>
               <div style={{ display: 'flex', gap: 4, padding: '0 6px 8px' }}>
                 {(['mac', 'win'] as const).map(p => (
                   <button key={p} onClick={() => set({ platform: p })} style={{ flex: 1, border: 'none', borderRadius: 9, padding: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', background: s.platform === p ? '#f08b5f' : '#1e1a16', color: s.platform === p ? '#241209' : '#a3988a' }}>
@@ -136,13 +136,13 @@ export function DesktopShell() {
                 ))}
               </div>
               <div style={{ height: 1, background: '#3a332b', margin: '2px 6px 6px' }} />
-              <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#6f665b', padding: '4px 12px 6px' }}>Surface</div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9a9084', padding: '4px 12px 6px' }}>Surface</div>
               {SURFACES.map(([id, macLabel, winLabel]) => (
                 <button key={id} onClick={() => go(id)} style={{ display: 'block', textAlign: 'left', background: s.screen === id ? '#2e2822' : 'transparent', border: 'none', color: s.screen === id ? '#f4eee5' : '#a3988a', padding: '9px 12px', fontSize: 13, fontWeight: 500, borderRadius: 9, cursor: 'pointer' }}>
                   {id === 'tray' ? (mac ? macLabel : winLabel) : macLabel}
                 </button>
               ))}
-              <div style={{ fontFamily: MONO, fontSize: 10.5, color: '#6f665b', padding: '8px 12px 4px' }}>diss desktop shell</div>
+              <div style={{ fontFamily: MONO, fontSize: 10.5, color: '#9a9084', padding: '8px 12px 4px' }}>diss desktop shell</div>
             </div>
           )}
           <button onClick={() => set(st => ({ navOpen: !st.navOpen }))} style={{ display: 'flex', alignItems: 'center', gap: 9, background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 99, padding: '11px 18px', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', boxShadow: '0 8px 30px rgba(240,139,95,.3)' }}>

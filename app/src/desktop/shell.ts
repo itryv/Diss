@@ -48,7 +48,7 @@ export const barName = (mac: boolean) => (mac ? 'menu bar' : 'system tray');
 
 export const sectionLabel: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, letterSpacing: '.09em',
-  textTransform: 'uppercase', color: '#6f665b',
+  textTransform: 'uppercase', color: '#9a9084',
 };
 
 export const captionTitle: React.CSSProperties = {
@@ -56,4 +56,4 @@ export const captionTitle: React.CSSProperties = {
   fontSize: 13, fontWeight: 600, color: '#a3988a', pointerEvents: 'none',
 };
 
-export const note: React.CSSProperties = { color: '#6f665b', fontSize: 12.5, lineHeight: 1.5 };
+export const note: React.CSSProperties = { color: '#9a9084', fontSize: 12.5, lineHeight: 1.5 };

@@ -21,7 +21,7 @@ import { fmtAgo, fmtBytes, fmtDateTime, fmtUptime } from '../util';
 const BG = '#151210';
 const CARD = '#1e1a16', CARD_BORDER = '#2e2822';
 const CARD_2 = '#241f1a', CARD_2_BORDER = '#362f28';
-const TEXT = '#f4eee5', DIM = '#a3988a', DIMMER = '#8a7f70', FAINT = '#6f665b';
+const TEXT = '#f4eee5', DIM = '#a3988a', DIMMER = '#968a7b', FAINT = '#9a9084';
 const ACCENT = '#f08b5f', ACCENT_SOFT = '#f0a97f';
 const DANGER = '#e0836f', DANGER_SOLID = '#c94a38';
 const GOOD = '#6fbf8f';
@@ -626,10 +626,10 @@ function Meetings() {
       <H1 right={<Btn onClick={reload} small>Refresh</Btn>}>Meetings</H1>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
         <SearchBox value={q} onChange={setQ} placeholder="Search code or title" />
-        <label style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', background: CARD, border: `1px solid ${CARD_BORDER}`, borderRadius: 12, padding: '10px 13px', minHeight: 44 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 9, background: CARD, border: `1px solid ${CARD_BORDER}`, borderRadius: 12, padding: '10px 13px', minHeight: 44 }}>
           <span style={{ fontSize: 13.5, color: DIM, whiteSpace: 'nowrap' }}>Live only</span>
-          <Toggle on={liveOnly} onToggle={() => setLiveOnly(v => !v)} />
-        </label>
+          <Toggle on={liveOnly} onToggle={() => setLiveOnly(v => !v)} label="Live only" />
+        </span>
       </div>
       {error && <div style={{ marginBottom: 14 }}><ErrorBox msg={error} onRetry={reload} /></div>}
       {loading && !data && <Loading what="meetings" />}
@@ -812,10 +812,10 @@ function Settings() {
                   </div>
                   <div style={{ color: DIMMER, fontSize: 13, lineHeight: 1.55, marginTop: 5 }}>{help}</div>
                 </div>
-                {/* inline-flex, not inline: Toggle is a sized <span> and only
+                {/* inline-flex, not inline: Toggle is a sized control and only
                     takes its width as a flex item. */}
                 <span style={{ display: 'inline-flex', paddingTop: 3, opacity: busyKey === key ? 0.5 : 1 }}>
-                  <Toggle on={on} onToggle={() => flip(key)} />
+                  <Toggle on={on} onToggle={() => flip(key)} label={label} />
                 </span>
               </div>
             );

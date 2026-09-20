@@ -69,7 +69,7 @@ export function ScreenShare() {
             <div onClick={() => set(st => ({ shareAudio: !st.shareAudio }))} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flex: 1 }}>
               <Switch on={s.shareAudio} size="sm" />
               <span style={{ fontSize: 13.5, fontWeight: 600 }}>Share audio</span>
-              <span style={{ fontSize: 12, color: '#6f665b' }}>{mac ? 'system audio · macOS 13+' : 'system audio'}</span>
+              <span style={{ fontSize: 12, color: '#9a9084' }}>{mac ? 'system audio · macOS 13+' : 'system audio'}</span>
             </div>
             <button className="hv-fg" style={{ background: 'none', border: '1px solid #3a332b', color: '#a3988a', borderRadius: 11, padding: '10px 18px', fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
             <button className="hv-primary" style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 11, padding: '10px 22px', fontSize: 13.5, fontWeight: 700, cursor: 'pointer' }}>Share</button>
@@ -91,14 +91,14 @@ export function ScreenShare() {
                 <span style={{ background: '#c94a38', color: '#fff', borderRadius: 99, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Stop sharing</span>
               </div>
             </div>
-            <div style={{ textAlign: 'center', color: '#6f665b', fontSize: 12, marginTop: 24, lineHeight: 1.5 }}>Accent border marks the shared display. Toolbar drags along the top edge and collapses to a nub:</div>
+            <div style={{ textAlign: 'center', color: '#9a9084', fontSize: 12, marginTop: 24, lineHeight: 1.5 }}>Accent border marks the shared display. Toolbar drags along the top edge and collapses to a nub:</div>
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 14 }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(36,31,26,.96)', border: '1px solid #3a332b', borderRadius: 99, padding: '6px 13px', fontSize: 12, fontWeight: 700, color: '#6fbf8f', boxShadow: '0 8px 24px rgba(0,0,0,.5)' }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#6fbf8f' }} />Sharing<DChevronDown size={12} color="#a3988a" />
               </span>
             </div>
           </div>
-          <div style={{ color: '#6f665b', fontSize: 12.5, marginTop: 18, lineHeight: 1.55 }}>
+          <div style={{ color: '#9a9084', fontSize: 12.5, marginTop: 18, lineHeight: 1.55 }}>
             Open question 5 answered: the toolbar stays on the shared display, not in the mini window — presenters look where their content is, and the mini window may be on a different monitor.
           </div>
         </div>

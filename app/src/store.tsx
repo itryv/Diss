@@ -67,6 +67,22 @@ export type VideoQuality = 'auto' | 'high' | 'saver';
  * worse than saying nothing.
  */
 export type PostKind = 'left' | 'ended' | 'removed' | 'dropped';
+
+/**
+ * The schedule form's "Meeting options", each bound to a field the server
+ * actually accepts.
+ *
+ * This used to be a bare list of four labels against a positional boolean
+ * array, of which only index 0 was ever sent — so "Participants start muted"
+ * and "Guests can join before host" were switches that did nothing, and the
+ * latter had no server concept behind it at all. Declaring the field next to
+ * the label is what stops that drifting apart again.
+ */
+export const SCHED_OPTIONS = [
+  { label: 'Waiting room', field: 'waitingRoom', value: true },
+  { label: 'Let people share their screen', field: 'allowShare', value: true },
+  { label: 'Let people use chat', field: 'allowChat', value: true },
+] as const satisfies readonly { label: string; field: string; value: boolean }[];
 export type ShareMode = 'screen' | 'screen-audio' | 'audio';
 export type DeviceKind = 'mic' | 'cam' | 'speaker';
 
@@ -116,6 +132,13 @@ const postKindFor = (reason?: DisconnectReason): PostKind => {
     default:
       return 'dropped';
   }
+};
+
+/** Today as yyyy-mm-dd in LOCAL time — toISOString() would shift the day west of UTC. */
+const todayISO = (): string => {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
 
 const speechCtor = (): SpeechRecognitionCtor | null => {
@@ -223,7 +246,7 @@ export interface AppState {
   code: string; codeInvalid: boolean;
   // app shell
   newMenuOpen: boolean; joinModal: boolean; settingsTab: 'profile' | 'av' | 'notif' | 'account' | 'desktop';
-  optionsOpen: boolean; schedTitle: string; schedTime: string; copied: boolean;
+  optionsOpen: boolean; schedTitle: string; schedDate: string; schedTime: string; copied: boolean;
   clock: string; dateStr: string;
   schedOpts: boolean[]; avOpts: boolean[]; notifOpts: boolean[];
   // lobby
@@ -304,8 +327,8 @@ const initial: AppState = {
   meeting: null,
   code: '', codeInvalid: false,
   newMenuOpen: false, joinModal: false, settingsTab: 'profile', optionsOpen: false,
-  schedTitle: '', schedTime: '15:00', copied: false, clock: '', dateStr: '',
-  schedOpts: [true, false, false, true], avOpts: [true, false, true], notifOpts: [true, true],
+  schedTitle: '', schedDate: todayISO(), schedTime: '15:00', copied: false, clock: '', dateStr: '',
+  schedOpts: [true, true, true], avOpts: [true, false, true], notifOpts: [true, true],
   permState: 'prompt', realCam: false, lobbyName: '', deniedPermissions: [], lobbyMic: true, lobbyCam: true, speakerTesting: false,
   joining: false, joinError: null,
   waitingId: null, waitingDenied: false,
@@ -998,16 +1021,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const scheduleMeeting = async () => {
       const st = ref.current;
       const [h, m] = st.schedTime.split(':').map(Number);
+      // Parse the date parts by hand and set them locally: `new Date('yyyy-mm-dd')`
+      // is treated as UTC midnight, which lands on the previous day west of UTC.
+      const [yy, mm, dd] = (st.schedDate || todayISO()).split('-').map(Number);
       const d = new Date();
+      d.setFullYear(yy, mm - 1, dd);
       d.setHours(h, m, 0, 0);
-      if (d.getTime() < Date.now()) d.setDate(d.getDate() + 1);
       try {
         let { meeting } = await api.createMeeting({ title: st.schedTitle.trim() || 'Untitled meeting', startsAt: d.toISOString() });
-        // "Waiting room" option from the schedule form (contract v2 PATCH)
-        if (st.schedOpts[0]) {
+        // Send every option whose toggle differs from the server's default, so
+        // each switch in the form actually means something (contract v2 PATCH).
+        const body: Record<string, boolean> = {};
+        SCHED_OPTIONS.forEach((opt, i) => {
+          const on = st.schedOpts[i] ?? opt.value;
+          if (on !== (opt.field === 'waitingRoom' ? false : true)) body[opt.field] = on;
+        });
+        if (Object.keys(body).length > 0) {
           try {
-            meeting = (await api.patchMeeting(meeting.id, { waitingRoom: true })).meeting;
-          } catch { /* meeting still created — the host can turn it on in-call */ }
+            meeting = (await api.patchMeeting(meeting.id, body)).meeting;
+          } catch { /* meeting still created — the host can adjust these in-call */ }
         }
         go('schedDone', { meeting, copied: false });
         loadMeetings();
@@ -2105,7 +2137,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       {children}
       {s.screen === 'admin' && (
         <Suspense fallback={
-          <div style={{ ...adminSurface, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a7f70', fontSize: 14 }}>
+          <div style={{ ...adminSurface, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#968a7b', fontSize: 14 }}>
             Loading the admin dashboard…
           </div>
         }>

@@ -18,7 +18,7 @@ function MenuRow({ label, shortcut, onClick }: { label: string; shortcut?: strin
   return (
     <div className="dk-tray-row" onClick={onClick} style={{ display: 'flex', alignItems: 'center', padding: 8, borderRadius: 8, fontSize: 13, color: '#d6cec2', cursor: 'pointer' }}>
       {label}
-      {shortcut && <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 11, color: '#6f665b' }}>{shortcut}</span>}
+      {shortcut && <span style={{ marginLeft: 'auto', fontFamily: MONO, fontSize: 11, color: '#9a9084' }}>{shortcut}</span>}
     </div>
   );
 }
@@ -80,7 +80,7 @@ export function TrayApp() {
       <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
         <QuickAction icon={<DPlus size={16} color="#f08b5f" />} label="New" onClick={run('new-meeting')} />
         <QuickAction icon={<DLink size={16} color="#f08b5f" />} label="Join code" onClick={run('join')} />
-        <QuickAction icon={<DCopy size={16} color={m.link ? '#f08b5f' : '#6f665b'} />} label={m.link ? 'Copy link' : 'No link'} onClick={() => { if (m.link) navigator.clipboard?.writeText(m.link); api?.tray.hide(); }} />
+        <QuickAction icon={<DCopy size={16} color={m.link ? '#f08b5f' : '#9a9084'} />} label={m.link ? 'Copy link' : 'No link'} onClick={() => { if (m.link) navigator.clipboard?.writeText(m.link); api?.tray.hide(); }} />
       </div>
 
       <div style={{ height: 1, background: '#3a332b', margin: '14px 4px 8px' }} />
