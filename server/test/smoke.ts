@@ -148,6 +148,19 @@ try {
     ok("me without session returns 401");
   }
 
+  // --- health ---
+  {
+    // Unauthenticated on purpose: an uptime checker and the compose
+    // healthcheck both have to reach it without credentials.
+    const r = await api("GET", "/api/health");
+    assert.equal(r.status, 200);
+    assert.equal(r.json.ok, true);
+    assert.equal(r.json.db, true, "the check must actually touch the database");
+    assert.equal(typeof r.json.diskFreeBytes, "number");
+    assert.equal(typeof r.json.uptimeSeconds, "number");
+    ok("health returns 200 with a real database check and no session");
+  }
+
   // --- meetings CRUD ---
   let instant: any;
   let scheduled: any;
@@ -856,12 +869,27 @@ try {
     ok("host breakout create returns 201 with idx-ordered rooms and their participants");
   }
   {
-    const r = await api("GET", `/api/meetings/${instant.code}/breakouts`);
+    const r = await api(
+      "GET",
+      `/api/meetings/${instant.code}/breakouts?chatToken=${encodeURIComponent(guestChat)}`,
+    );
     assert.equal(r.status, 200);
     assert.equal(r.json.open, true);
     assert.equal(r.json.breakouts.length, 2);
     assert.equal(r.json.breakouts[1].participants[0].identity, hostIdentity);
     ok("breakout list reports open: true with both rooms");
+  }
+  {
+    // The roster carries real display names and user-<id> identities, so the
+    // meeting code alone must not be enough to read it.
+    const anon = await api("GET", `/api/meetings/${instant.code}/breakouts`);
+    assert.equal(anon.status, 401);
+    const forged = await api(
+      "GET",
+      `/api/meetings/${instant.code}/breakouts?chatToken=not-a-token`,
+    );
+    assert.equal(forged.status, 401);
+    ok("breakout list requires a valid chatToken (no anonymous roster leak)");
   }
   {
     const r = await api("POST", `/api/meetings/${instant.code}/breakouts/token`, {}, {
@@ -916,7 +944,10 @@ try {
     });
     assert.equal(r.status, 201);
     assert.equal(r.json.breakouts.length, 1);
-    const list = await api("GET", `/api/meetings/${instant.code}/breakouts`);
+    const list = await api(
+      "GET",
+      `/api/meetings/${instant.code}/breakouts?chatToken=${encodeURIComponent(guestChat)}`,
+    );
     assert.equal(list.json.breakouts.length, 1);
     assert.equal(list.json.breakouts[0].name, "Solo");
     ok("creating a new set replaces the previous open breakouts");
@@ -929,7 +960,10 @@ try {
   {
     const r = await api("POST", `/api/meetings/${instant.code}/breakouts/close`, host);
     assert.equal(r.status, 204);
-    const list = await api("GET", `/api/meetings/${instant.code}/breakouts`);
+    const list = await api(
+      "GET",
+      `/api/meetings/${instant.code}/breakouts?chatToken=${encodeURIComponent(guestChat)}`,
+    );
     assert.equal(list.json.open, false);
     assert.deepEqual(list.json.breakouts, []);
     ok("host breakout close returns 204 and the list reports open: false");
@@ -1553,6 +1587,28 @@ try {
       const gone = await aapi("DELETE", `/api/admin/meetings/${meeting.id}`, admin);
       assert.equal(gone.status, 404);
       ok("admin meeting delete removes every dependent row and the recording file");
+    }
+
+    // The HOST-facing delete has to clean up exactly like the admin one. The FK
+    // cascade drops the recordings row, which holds the only copy of file_name,
+    // so skipping the unlink leaves the .mp4 on disk forever with nothing left
+    // to find it by. Asserting the row is gone is not enough — that is why this
+    // went unnoticed.
+    {
+      const meeting = (await aapi("POST", "/api/meetings", alice, { title: "Host deletes" })).json.meeting;
+      const recId = seedRecording(meeting.id, "host-deleted.mp4", "host-bytes");
+      assert.equal(existsSync(join(adminRecordings, "host-deleted.mp4")), true);
+
+      const r = await aapi("DELETE", `/api/meetings/${meeting.id}`, alice);
+      assert.equal(r.status, 204);
+      assert.equal(count("meetings", "id = ?", meeting.id), 0, "meeting row");
+      assert.equal(count("recordings", "id = ?", recId), 0, "recording row");
+      assert.equal(
+        existsSync(join(adminRecordings, "host-deleted.mp4")),
+        false,
+        "the host delete must unlink the recording file, not orphan it",
+      );
+      ok("host meeting delete removes the recording row AND the file");
     }
 
     // --- §2 user delete cascades ---

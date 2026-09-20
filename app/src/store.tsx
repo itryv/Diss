@@ -1646,9 +1646,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const refreshBreakouts = async () => {
       const st = ref.current;
-      if (!st.meeting || st.devMode) return;
+      if (!st.meeting || st.devMode || !st.chatToken) return;
       try {
-        const { breakouts, open } = await api.listBreakouts(st.meeting.code);
+        const { breakouts, open } = await api.listBreakouts(st.meeting.code, st.chatToken);
         patch({ breakouts, breakoutsOpen: open });
       } catch { /* transient — the poll tries again */ }
     };
@@ -2052,13 +2052,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const t = window.setInterval(() => {
       const st = ref.current;
-      if (st.screen !== 'meeting' || st.devMode || !st.meeting) return;
+      if (st.screen !== 'meeting' || st.devMode || !st.meeting || !st.chatToken) return;
       const involved = !!st.inBreakout || st.breakoutsOpen || st.breakoutUi || st.isHost || st.isCoHost;
       breakoutTickRef.current += 1;
       // Everyone polls, but people with nothing to do with breakouts do it at
       // a third of the rate (well inside the 60/min limit either way).
       if (!involved && breakoutTickRef.current % 3 !== 0) return;
-      api.listBreakouts(st.meeting.code)
+      api.listBreakouts(st.meeting.code, st.chatToken)
         .then(({ breakouts, open }) => {
           const now = ref.current;
           if (now.screen !== 'meeting') return;

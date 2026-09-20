@@ -81,6 +81,17 @@ const ADMIN_RATE_LIMIT = 120;
  */
 const LIVEKIT_TIMEOUT_MS = Number(process.env.LIVEKIT_TIMEOUT_MS ?? 3000);
 
+/**
+ * Below this much free space we stop starting new recordings and report the
+ * server as degraded.
+ *
+ * A room-composite egress writes an MP4 for the whole session with no size
+ * bound, and a full disk takes the entire deployment down — every SQLite write
+ * starts failing, so nobody can even log in. Refusing one recording is a far
+ * smaller loss than that, and it fails at the point a human asked for it.
+ */
+const MIN_FREE_DISK_BYTES = Number(process.env.MIN_FREE_DISK_BYTES ?? 2 * 1024 * 1024 * 1024);
+
 function perRoute(max: number) {
   return { config: { rateLimit: { max } } };
 }
@@ -150,7 +161,12 @@ async function fileSize(path: string): Promise<number> {
 }
 
 export async function buildServer(env: Env): Promise<FastifyInstance> {
-  const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
+  // trustProxy: every request reaches us through Caddy, so without it
+  // request.ip is the proxy's container address — identical for everyone. The
+  // rate limiter keys on request.ip, which turned every per-route limit into a
+  // single global bucket: "10 logins per minute" for the entire internet
+  // combined, trivially exhausted, while real per-IP abuse was invisible.
+  const app = Fastify({ trustProxy: true, logger: process.env.NODE_ENV !== "test" });
   const db = openDb(env.DATABASE_PATH);
   const recordingsDir = resolve(env.RECORDINGS_DIR);
   const databaseFile = resolve(env.DATABASE_PATH);
@@ -366,6 +382,52 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
     );
   }
 
+  // ---------- Health ----------
+
+  /**
+   * Liveness + readiness for an uptime checker and the compose healthcheck.
+   *
+   * Deliberately unauthenticated and cheap: it answers the one question nobody
+   * could answer before, which is whether this process is actually able to
+   * serve. A container that has deadlocked or whose database has gone
+   * read-only on a full disk stays "up" as far as Docker is concerned, so the
+   * check has to touch the DB rather than just return 200.
+   *
+   * Returns 503 (not 500) when degraded, so a proxy or orchestrator treats it
+   * as "not ready" rather than an application error.
+   */
+  app.get("/api/health", async (_request, reply) => {
+    let dbOk = false;
+    try {
+      db.prepare("SELECT 1").get();
+      dbOk = true;
+    } catch (err) {
+      app.log.error({ err }, "health: database check failed");
+    }
+
+    let diskFreeBytes = 0;
+    try {
+      const fs = await statfs(dirname(databaseFile));
+      diskFreeBytes = Number(fs.bavail) * Number(fs.bsize);
+    } catch {
+      // statfs unsupported here — reported as 0, which never fails the check.
+    }
+
+    // A nearly full disk is the most likely way this deployment dies: SQLite
+    // starts failing every write and egress dies mid-recording. Surface it
+    // while there is still time to act.
+    const diskLow = diskFreeBytes > 0 && diskFreeBytes < MIN_FREE_DISK_BYTES;
+    const ok = dbOk && !diskLow;
+    return reply.status(ok ? 200 : 503).send({
+      ok,
+      db: dbOk,
+      diskFreeBytes,
+      diskLow,
+      uptimeSeconds: Math.floor(process.uptime()),
+      startedAt: serverStartedAt,
+    });
+  });
+
   // ---------- Auth ----------
 
   app.post<{ Body: { name: string; email: string; password: string } }>(
@@ -566,7 +628,16 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
       if (meeting.host_user_id !== user.id) {
         return reply.status(403).send({ error: "only the host can delete a meeting" });
       }
-      db.prepare("DELETE FROM meetings WHERE id = ?").run(meeting.id);
+      // The FK cascade drops the recordings rows, which are the only record of
+      // each file_name — so unlinking has to be set up first or the .mp4s stay
+      // on disk forever, readable and unreferenced. Same order as the admin
+      // path: commit the rows, then remove the files, so a failed unlink leaves
+      // a stray file rather than a row pointing at nothing.
+      const files = recordingFilesForMeetings(db, [meeting.id]);
+      db.transaction(() => {
+        deleteMeetingsCascade(db, [meeting.id]);
+      })();
+      await unlinkRecordingFiles(files);
       return reply.status(204).send();
     },
   );
@@ -1192,7 +1263,7 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
     },
   );
 
-  app.get<{ Params: { code: string } }>(
+  app.get<{ Params: { code: string }; Querystring: { chatToken?: string } }>(
     "/api/meetings/:code/breakouts",
     {
       ...perRoute(60),
@@ -1202,11 +1273,21 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
           required: ["code"],
           properties: { code: { type: "string", minLength: 1, maxLength: 100 } },
         },
+        querystring: {
+          type: "object",
+          properties: { chatToken: { type: "string", maxLength: 4096 } },
+        },
       },
     },
     async (request, reply) => {
       const meeting = findMeetingByCode(db, request.params.code);
       if (!meeting) return reply.status(404).send({ error: "meeting not found" });
+      // This returns the attendee roster — real display names and user-<id>
+      // identities. Unauthenticated, anyone who was ever forwarded the meeting
+      // code could read it, including for a locked meeting they were never
+      // admitted to. Same proof of admission the sibling routes require.
+      const caller = verifyChatToken(env.SESSION_SECRET, request.query.chatToken, meeting.id);
+      if (!caller) return reply.status(401).send({ error: "invalid chat token" });
       const breakouts = breakoutsPayload(meeting.id);
       return reply.status(200).send({ breakouts, open: breakouts.length > 0 });
     },
@@ -1358,6 +1439,21 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
 
       if (request.body.action === "start") {
         if (active) return reply.status(409).send({ error: "already recording" });
+        // Check before starting, not after: egress composites the entire
+        // session and only writes at the end, so running out of space loses the
+        // whole recording and takes the disk — and with it the database — down.
+        try {
+          const fsStat = await statfs(dirname(databaseFile));
+          const free = Number(fsStat.bavail) * Number(fsStat.bsize);
+          if (free > 0 && free < MIN_FREE_DISK_BYTES) {
+            app.log.warn({ free }, "refusing to start a recording: low disk space");
+            return reply
+              .status(507)
+              .send({ error: "not enough free disk space to start a recording" });
+          }
+        } catch {
+          // statfs unsupported here — proceed rather than block recording.
+        }
         await mkdir(recordingsDir, { recursive: true });
         // The egress container shares this directory as /out but runs as a
         // non-root user (uid 1001, gid 0). A directory created by root with

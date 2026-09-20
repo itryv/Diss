@@ -8,6 +8,16 @@
 
 name: diss
 
+# Docker's default json-file driver has NO size limit. diss-server logs every
+# request, and livekit/egress log at info, so on a long-lived deployment the
+# logs alone will eventually fill the disk — which takes SQLite down with it,
+# because every write starts failing. Every service below uses this.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   diss-server:
     build:
@@ -35,6 +45,16 @@ services:
       - internal
     depends_on:
       - livekit
+    logging: *default-logging
+    # Without this, a deadlocked process or a database gone read-only on a full
+    # disk still counts as "up" and Docker never restarts it. /api/health runs a
+    # real query and reports 503 when it cannot serve.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   diss-app:
     build:
@@ -48,6 +68,7 @@ services:
       - ./downloads:/usr/share/nginx/html/downloads:ro
     networks:
       - web
+    logging: *default-logging
 
   livekit:
     image: livekit/livekit-server:v1.9
@@ -97,6 +118,7 @@ services:
       - internal
     depends_on:
       - redis
+    logging: *default-logging
 
   redis:
     image: redis:7-alpine
@@ -104,6 +126,7 @@ services:
     command: redis-server --save "" --appendonly no
     networks:
       - internal
+    logging: *default-logging
 
   egress:
     image: livekit/egress:v1.9
@@ -127,6 +150,7 @@ services:
     depends_on:
       - livekit
       - redis
+    logging: *default-logging
 
 networks:
   web:

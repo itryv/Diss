@@ -299,8 +299,10 @@ export const api = {
   // a client can never mint a token for a room it isn't assigned to.
   createBreakouts: (code: string, rooms: { name: string; identities: string[] }[]) =>
     req<{ breakouts: Breakout[] }>(`/meetings/${encodeURIComponent(code)}/breakouts`, { method: 'POST', json: { rooms } }),
-  listBreakouts: (code: string) =>
-    req<{ breakouts: Breakout[]; open: boolean }>(`/meetings/${encodeURIComponent(code)}/breakouts`),
+  listBreakouts: (code: string, chatToken: string) =>
+    req<{ breakouts: Breakout[]; open: boolean }>(
+      `/meetings/${encodeURIComponent(code)}/breakouts${qs({ chatToken })}`,
+    ),
   /** `idx` is host-only: visit any room. Everyone else gets their own, or a 404. */
   breakoutToken: (code: string, chatToken: string, idx?: number) =>
     req<BreakoutToken>(`/meetings/${encodeURIComponent(code)}/breakouts/token`, {

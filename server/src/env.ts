@@ -48,18 +48,52 @@ export interface Env {
   ADMIN_EMAILS: string;
 }
 
+/**
+ * `??` only falls back on null/undefined, and `.env` templates ship these keys
+ * present but blank — which Docker passes through as "". An empty SESSION_SECRET
+ * would sail past the fallback and become the HMAC key for every chatToken,
+ * making them forgeable by anyone; empty LiveKit credentials produce tokens the
+ * SFU rejects while the API still answers 200. Treat blank as absent.
+ */
+const fromEnv = (name: string): string | undefined => {
+  const raw = process.env[name];
+  return raw === undefined || raw.trim() === "" ? undefined : raw;
+};
+
+/** Secrets with no safe default: in production a wrong value is worse than a crash. */
+const REQUIRED_IN_PRODUCTION = [
+  "SESSION_SECRET",
+  "LIVEKIT_API_KEY",
+  "LIVEKIT_API_SECRET",
+  "CORS_ORIGIN",
+] as const;
+
 export function readEnv(overrides: Partial<Env> = {}): Env {
+  if (process.env.NODE_ENV === "production") {
+    const missing = REQUIRED_IN_PRODUCTION.filter(
+      (name) => fromEnv(name) === undefined && !(name in overrides),
+    );
+    if (missing.length > 0) {
+      // Refusing to boot is recoverable and obvious. Booting on a random
+      // per-restart session secret is a mystery bug: every cookie and every
+      // chatToken silently stops working on each deploy.
+      throw new Error(
+        `Missing required environment variables: ${missing.join(", ")}. ` +
+          `Set them in deploy/.env — they have no safe default in production.`,
+      );
+    }
+  }
   return {
     PORT: Number(process.env.PORT ?? 8787),
-    DATABASE_PATH: process.env.DATABASE_PATH ?? "./data/diss.db",
-    SESSION_SECRET: process.env.SESSION_SECRET ?? randomBytes(32).toString("hex"),
-    LIVEKIT_URL: process.env.LIVEKIT_URL ?? "ws://localhost:7880",
-    LIVEKIT_API_URL: process.env.LIVEKIT_API_URL ?? "http://localhost:7880",
-    LIVEKIT_API_KEY: process.env.LIVEKIT_API_KEY ?? "devkey",
-    LIVEKIT_API_SECRET: process.env.LIVEKIT_API_SECRET ?? "secret",
-    CORS_ORIGIN: process.env.CORS_ORIGIN ?? "http://localhost:5173",
-    EGRESS_ENABLED: (process.env.EGRESS_ENABLED ?? "false").toLowerCase() === "true",
-    RECORDINGS_DIR: process.env.RECORDINGS_DIR ?? "./data/recordings",
+    DATABASE_PATH: fromEnv("DATABASE_PATH") ?? "./data/diss.db",
+    SESSION_SECRET: fromEnv("SESSION_SECRET") ?? randomBytes(32).toString("hex"),
+    LIVEKIT_URL: fromEnv("LIVEKIT_URL") ?? "ws://localhost:7880",
+    LIVEKIT_API_URL: fromEnv("LIVEKIT_API_URL") ?? "http://localhost:7880",
+    LIVEKIT_API_KEY: fromEnv("LIVEKIT_API_KEY") ?? "devkey",
+    LIVEKIT_API_SECRET: fromEnv("LIVEKIT_API_SECRET") ?? "secret",
+    CORS_ORIGIN: fromEnv("CORS_ORIGIN") ?? "http://localhost:5173",
+    EGRESS_ENABLED: (fromEnv("EGRESS_ENABLED") ?? "false").toLowerCase() === "true",
+    RECORDINGS_DIR: fromEnv("RECORDINGS_DIR") ?? "./data/recordings",
     RATE_LIMIT_WINDOW_MS: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000),
     ADMIN_EMAILS: process.env.ADMIN_EMAILS ?? "",
     ...overrides,
