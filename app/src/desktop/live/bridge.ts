@@ -40,6 +40,8 @@ export type ShortcutName = 'toggle-mute' | 'toggle-camera' | 'settings' | 'new-m
 export interface DissBridge {
   isDesktop: true;
   platform: string;
+  /** Public origin of the Diss site — the only safe base for a shareable link. */
+  webOrigin?: string;
   systemAudio: boolean;
   info: () => Promise<{ platform: string; version: string; electron: string; prefs: DesktopPrefs; meeting: MeetingState }>;
   ready: () => Promise<boolean>;

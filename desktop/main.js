@@ -39,6 +39,18 @@ const DIST = path.join(RENDERER_DIR, 'index.html');
 const API_ORIGIN = (process.env.DISS_API_ORIGIN || 'https://diss.remilekun.dev').replace(/\/+$/, '');
 
 /**
+ * Where the *public site* lives, for links this app hands to other people.
+ *
+ * The renderer is served from a private loopback origin, so anything built from
+ * `window.location.origin` (an invite link, most of all) is dead the moment it
+ * leaves this machine. The renderer reads this through the preload bridge.
+ *
+ * Same host as the API in every normal deployment; split only when a dev points
+ * the app at a local backend but still wants shareable links.
+ */
+const WEB_ORIGIN = (process.env.DISS_WEB_ORIGIN || API_ORIGIN).replace(/\/+$/, '');
+
+/**
  * The renderer is served over http from localhost rather than loaded from file://.
  *
  * A file:// page has a null origin, which breaks the two things this app needs
@@ -52,6 +64,18 @@ const API_ORIGIN = (process.env.DISS_API_ORIGIN || 'https://diss.remilekun.dev')
  * survives a restart; if it is taken we walk to the next one.
  */
 const BASE_PORT = Number(process.env.DISS_UI_PORT) || 8790;
+
+/**
+ * Shared by every window: Node stays out of the page, and the preload gets the
+ * public origin as a launch argument so shareable links never get built from
+ * the loopback origin the renderer happens to be served from.
+ */
+const WEB_PREFERENCES = {
+  preload: path.join(__dirname, 'preload.js'),
+  contextIsolation: true,
+  nodeIntegration: false,
+  additionalArguments: [`--diss-web-origin=${WEB_ORIGIN}`],
+};
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8',
@@ -310,11 +334,7 @@ function pickShareSource() {
     width: 680, height: 620,
     parent, modal: !!parent && !IS_MAC, show: false, frame: false, resizable: false,
     transparent: true, backgroundColor: '#00000000',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
+    webPreferences: WEB_PREFERENCES,
   });
   loadRoute(picker, 'picker');
   hardenWindowNavigation(picker);
@@ -486,11 +506,7 @@ function createMainWindow() {
     titleBarStyle: IS_MAC ? 'hiddenInset' : 'default',
     trafficLightPosition: IS_MAC ? { x: 16, y: 14 } : undefined,
     title: 'Diss',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
+    webPreferences: WEB_PREFERENCES,
   });
 
   loadRoute(win.main);
@@ -521,11 +537,7 @@ function createMiniWindow() {
     alwaysOnTop: true, skipTaskbar: true, fullscreenable: false,
     // Transparent so the renderer's own rounded corners are the window's shape.
     transparent: true, backgroundColor: '#00000000', hasShadow: true,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
+    webPreferences: WEB_PREFERENCES,
   });
   // 'screen-saver' keeps it above full-screen apps; visible on every Space.
   win.mini.setAlwaysOnTop(true, 'screen-saver');
@@ -572,11 +584,7 @@ function createTrayPanel() {
     // behaviour. Electron's `type: panel` applies an NSPanel-only style mask to
     // an NSWindow and currently emits a native warning on modern macOS.
     ...(IS_MAC ? { hiddenInMissionControl: true } : {}),
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
+    webPreferences: WEB_PREFERENCES,
   });
   loadRoute(win.tray, 'tray');
   hardenWindowNavigation(win.tray);
@@ -632,11 +640,7 @@ function openPermissionsWindow() {
     show: false, frame: false, resizable: false,
     transparent: true, backgroundColor: '#00000000',
     title: 'Permissions',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
+    webPreferences: WEB_PREFERENCES,
   });
   loadRoute(win.permissions, 'permissions');
   hardenWindowNavigation(win.permissions);
@@ -1030,6 +1034,11 @@ app.whenReady().then(async () => {
         source: DEV_URL || `${uiOrigin} (${RENDERER_DIR})`,
         origin: await win.main.webContents.executeJavaScript('location.origin').catch(() => '?'),
         apiOrigin: API_ORIGIN,
+        // Built the way the renderer builds it. A loopback host here means the
+        // app is handing out invite links nobody else can open.
+        inviteLink: await win.main.webContents.executeJavaScript(
+          `(window.diss?.webOrigin || location.origin) + '/?join=abc-defg-hij'`
+        ).catch(() => '?'),
         apiReachable: api,
         mainWindow: !!win.main && !win.main.isDestroyed(),
         rendererMounted: !!rendered,

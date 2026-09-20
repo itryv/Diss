@@ -372,8 +372,12 @@ export function extractCode(raw: string): string | null {
 
 /** Shareable link for a meeting code. */
 export function meetingLink(code: string): string {
-  // The installed app is served from a private loopback origin. Invite links
-  // must point at the public site so another person can actually open them.
-  const origin = window.diss?.isDesktop ? 'https://diss.remilekun.dev' : window.location.origin;
-  return `${origin}/?join=${code}`;
+  // The installed app is served from a private loopback origin, so building this
+  // from window.location gives out a link that is dead on any other machine. The
+  // desktop bridge hands down the public origin; the literal is only a fallback
+  // for an older preload that predates `webOrigin`.
+  const desktop = window.diss?.isDesktop
+    ? (window.diss.webOrigin || 'https://diss.remilekun.dev')
+    : null;
+  return `${desktop ?? window.location.origin}/?join=${code}`;
 }

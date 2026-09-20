@@ -244,7 +244,7 @@ function SchedDone() {
       <h1 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 28, margin: '0 0 4px' }}>{m?.title || 'Your meeting'} is on the calendar</h1>
       <p style={{ color: '#a3988a', fontSize: 15, margin: '0 0 26px' }}>{when}</p>
       <div style={{ background: '#1e1a16', border: '1px solid #362f28', borderRadius: 16, padding: 18, display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ flex: 1, minWidth: 0, fontSize: 15, color: '#c9beb0', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m ? `${window.location.host}/?join=${m.code}` : '—'}</div>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 15, color: '#c9beb0', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{link || '—'}</div>
         <button className="hv-primary" onClick={app.copyLink} style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 11, padding: '12px 22px', fontWeight: 700, fontSize: 14.5, cursor: 'pointer', flexShrink: 0 }}>{s.copied ? 'Copied' : 'Copy link'}</button>
       </div>
       <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>

@@ -18,9 +18,20 @@ function on(channel, cb) {
   };
 }
 
+/**
+ * The public origin of the Diss site, handed down by the main process.
+ *
+ * This window is served from a private loopback origin, so any link meant for
+ * somebody else has to be built from this instead of `window.location.origin`.
+ */
+const WEB_ORIGIN =
+  (process.argv.find(a => a.startsWith('--diss-web-origin=')) || '').slice('--diss-web-origin='.length)
+  || 'https://diss.remilekun.dev';
+
 contextBridge.exposeInMainWorld('diss', {
   isDesktop: true,
   platform: process.platform,
+  webOrigin: WEB_ORIGIN,
   // Native desktop-audio capture is available through Electron on Windows and
   // macOS 13+. Keeping this synchronous lets the share picker render correctly
   // before it asks the main process for any capture source.
