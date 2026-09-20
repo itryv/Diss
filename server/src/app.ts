@@ -1032,6 +1032,124 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
     };
   };
 
+  // ---------- Transcript ----------
+
+  /**
+   * Append final caption lines to the meeting's transcript.
+   *
+   * Lines arrive in batches rather than one request per utterance: captions
+   * fire every few seconds per speaker, and a request each would burn the rate
+   * limit and the battery for no benefit.
+   *
+   * Only final lines are ever sent. Interim results are half-formed by design
+   * and are replaced by the final text, so storing them would produce a
+   * transcript full of abandoned sentence fragments.
+   */
+  app.post<{ Params: { code: string }; Body: { chatToken: string; lines: { text: string; ts?: string }[] } }>(
+    "/api/meetings/:code/transcript",
+    {
+      ...perRoute(60),
+      schema: {
+        params: {
+          type: "object",
+          required: ["code"],
+          properties: { code: { type: "string", minLength: 1, maxLength: 100 } },
+        },
+        body: {
+          type: "object",
+          required: ["chatToken", "lines"],
+          additionalProperties: false,
+          properties: {
+            chatToken: { type: "string", maxLength: 4096 },
+            lines: {
+              type: "array",
+              maxItems: 50,
+              items: {
+                type: "object",
+                required: ["text"],
+                additionalProperties: false,
+                properties: {
+                  text: { type: "string", minLength: 1, maxLength: 2000 },
+                  ts: { type: "string", maxLength: 40 },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const meeting = findMeetingByCode(db, request.params.code);
+      if (!meeting) return reply.status(404).send({ error: "meeting not found" });
+      // Speaker identity comes from the token, never the body — otherwise
+      // anyone could put words in someone else's mouth, permanently.
+      const caller = verifyChatToken(env.SESSION_SECRET, request.body.chatToken, meeting.id);
+      if (!caller) return reply.status(401).send({ error: "invalid chat token" });
+
+      const insert = db.prepare(
+        `INSERT INTO transcript_lines (id, meeting_id, identity, display_name, text, ts)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      );
+      const now = new Date().toISOString();
+      db.transaction(() => {
+        for (const line of request.body.lines) {
+          insert.run(
+            randomUUID(),
+            meeting.id,
+            caller.identity,
+            caller.displayName,
+            line.text,
+            line.ts ?? now,
+          );
+        }
+      })();
+      return reply.status(202).send({ stored: request.body.lines.length });
+    },
+  );
+
+  /**
+   * Read a meeting's transcript. Host or co-host only — it is a verbatim record
+   * of everything everyone said, so it is not something any attendee who still
+   * holds a meeting code should be able to pull down later.
+   */
+  app.get<{ Params: { code: string } }>(
+    "/api/meetings/:code/transcript",
+    {
+      ...perRoute(60),
+      schema: {
+        params: {
+          type: "object",
+          required: ["code"],
+          properties: { code: { type: "string", minLength: 1, maxLength: 100 } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const meeting = findMeetingByCode(db, request.params.code);
+      if (!meeting) return reply.status(404).send({ error: "meeting not found" });
+      const user = requireUser(request);
+      if (!user) return reply.status(401).send({ error: "not authenticated" });
+      if ((await requesterRole(meeting, user)) === null) {
+        return reply.status(403).send({ error: "host or co-host required" });
+      }
+      const rows = db
+        .prepare(
+          `SELECT identity, display_name, text, ts FROM transcript_lines
+           WHERE meeting_id = ? ORDER BY ts ASC, rowid ASC`,
+        )
+        .all(meeting.id) as { identity: string; display_name: string; text: string; ts: string }[];
+      return reply.status(200).send({
+        meeting: { code: meeting.code, title: meeting.title },
+        lines: rows.map((r) => ({
+          identity: r.identity,
+          displayName: r.display_name,
+          text: r.text,
+          ts: r.ts,
+        })),
+      });
+    },
+  );
+
   app.post<{
     Params: { code: string };
     Body: {

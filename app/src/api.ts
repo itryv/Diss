@@ -303,6 +303,19 @@ export const api = {
     req<{ breakouts: Breakout[]; open: boolean }>(
       `/meetings/${encodeURIComponent(code)}/breakouts${qs({ chatToken })}`,
     ),
+  /** Append final caption lines to the stored transcript (batched). */
+  appendTranscript: (code: string, chatToken: string, lines: { text: string; ts: string }[]) =>
+    req<{ stored: number }>(`/meetings/${encodeURIComponent(code)}/transcript`, {
+      method: 'POST',
+      json: { chatToken, lines },
+    }),
+
+  /** Host/co-host: read a meeting's stored transcript. */
+  transcript: (code: string) =>
+    req<{ meeting: { code: string; title: string }; lines: TranscriptLine[] }>(
+      `/meetings/${encodeURIComponent(code)}/transcript`,
+    ),
+
   /** Host-only: end the meeting for everyone, breakout rooms included. */
   endMeeting: (code: string) =>
     req<{ rooms: string[] }>(`/meetings/${encodeURIComponent(code)}/end`, { method: 'POST' }),
@@ -368,6 +381,15 @@ export const api = {
 /** URL that streams a recording's MP4 (cookie-authenticated). */
 export function recordingFileUrl(id: number | string): string {
   return `/api/recordings/${encodeURIComponent(String(id))}/file`;
+}
+
+/** One stored line of a meeting transcript. */
+export interface TranscriptLine {
+  identity: string;
+  displayName: string;
+  text: string;
+  /** ISO timestamp of when the line was spoken. */
+  ts: string;
 }
 
 /** Extract an abc-defg-hij join code from raw input (code or pasted link). */

@@ -35,7 +35,7 @@ import {
 
 export type Screen =
   | 'landing' | 'auth' | 'dash' | 'schedule' | 'schedDone' | 'detail'
-  | 'recordings' | 'settings' | 'lobby' | 'waiting' | 'meeting' | 'post'
+  | 'recordings' | 'transcript' | 'settings' | 'lobby' | 'waiting' | 'meeting' | 'post'
   // Admin dashboard — only reachable when `user.isAdmin` (contract admin §8).
   | 'admin';
 
@@ -510,6 +510,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const roomRef = useRef<Room | null>(null);
   const handRef = useRef<Map<string, boolean>>(new Map());
   const leavingRef = useRef(false);
+  const transcriptBufRef = useRef<{ text: string; ts: string }[]>([]);
+  const transcriptTimerRef = useRef<number | null>(null);
   const timers = useRef<{ hide?: number }>({});
   // waiting-room guests we've already announced (host side)
   const seenWaitingRef = useRef<Set<string>>(new Set());
@@ -819,8 +821,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    // ── transcript ───────────────────────────────────────────────────────────
+    /**
+     * Buffer final caption lines and flush them together.
+     *
+     * Captions land every few seconds per speaker. A request each would eat the
+     * rate limit and wake the radio constantly for a handful of words, so lines
+     * are batched onto a timer — and flushed on the way out, or the last few
+     * seconds of every meeting would be lost.
+     */
+    const flushTranscript = async () => {
+      const lines = transcriptBufRef.current;
+      const st = ref.current;
+      if (lines.length === 0 || !st.meeting || !st.chatToken || st.devMode) return;
+      transcriptBufRef.current = [];
+      try {
+        await api.appendTranscript(st.meeting.code, st.chatToken, lines);
+      } catch {
+        // Put them back for the next flush. Losing a line beats blocking the
+        // call, but dropping one on a transient blip would be careless. Capped
+        // so a long outage cannot grow this without bound.
+        transcriptBufRef.current = [...lines, ...transcriptBufRef.current].slice(-200);
+      }
+    };
+
+    const queueTranscriptLine = (text: string, ts: number) => {
+      const st = ref.current;
+      if (!st.meeting || !st.chatToken || st.devMode) return;
+      transcriptBufRef.current.push({ text, ts: new Date(ts).toISOString() });
+      if (transcriptTimerRef.current !== null) return;
+      transcriptTimerRef.current = window.setTimeout(() => {
+        transcriptTimerRef.current = null;
+        void flushTranscript();
+      }, 5000);
+    };
+
     // ── local captions (Web Speech API) ──────────────────────────────────────
     const stopCaptionEngine = () => {
+      // Whatever is buffered belongs to the meeting that is ending, so it has
+      // to go now rather than waiting for a timer that will never fire.
+      if (transcriptTimerRef.current !== null) {
+        window.clearTimeout(transcriptTimerRef.current);
+        transcriptTimerRef.current = null;
+      }
+      void flushTranscript();
       const rec = speechRef.current;
       if (!rec) return;
       speechRef.current = null;
@@ -852,6 +896,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
               const ts = Date.now();
               pushCaption(name, text, false, ts);
               publishJson('caption', { name, text, interim: false, ts });
+              // Only final lines are kept. Interim results get superseded, so
+              // storing them would fill the transcript with abandoned fragments.
+              queueTranscriptLine(text, ts);
             }
           } else {
             interimText += r[0].transcript;

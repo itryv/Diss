@@ -179,6 +179,24 @@ export function openDb(databasePath: string): Database.Database {
     );
     CREATE INDEX IF NOT EXISTS idx_recordings_meeting ON recordings(meeting_id);
 
+    -- Live captions are published over a LiveKit data channel and then thrown
+    -- away. Keeping the final lines turns a feature that vanishes when the call
+    -- ends into a record the host can actually read afterwards. Interim lines
+    -- are never stored: they are half-formed by design and get superseded.
+    CREATE TABLE IF NOT EXISTS transcript_lines (
+      id           TEXT PRIMARY KEY,
+      meeting_id   TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+      identity     TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      text         TEXT NOT NULL,
+      ts           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    -- (meeting_id, ts) rather than meeting_id alone: every read is "this
+    -- meeting, in order", which would otherwise sort the whole meeting's lines
+    -- in a temp b-tree on each request.
+    CREATE INDEX IF NOT EXISTS idx_transcript_meeting_ts
+      ON transcript_lines(meeting_id, ts);
+
     CREATE TABLE IF NOT EXISTS settings (
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL

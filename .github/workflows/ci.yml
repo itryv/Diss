@@ -46,6 +46,12 @@ jobs:
       - name: Test
         working-directory: server
         run: npm test
+      # The migration suite replays each historical schema era against the
+      # current migrations. It guards the one code path that can destroy a
+      # production database, and until now nothing ran it.
+      - name: Migration safety
+        working-directory: server
+        run: npm run test:migration
 
   e2e:
     name: End-to-end (Playwright)

@@ -171,6 +171,7 @@ export function deleteMeetingsCascade(db: Database.Database, meetingIds: string[
   ).run(...meetingIds);
   db.prepare(`DELETE FROM breakouts WHERE meeting_id IN (${placeholders})`).run(...meetingIds);
   db.prepare(`DELETE FROM messages WHERE meeting_id IN (${placeholders})`).run(...meetingIds);
+  db.prepare(`DELETE FROM transcript_lines WHERE meeting_id IN (${placeholders})`).run(...meetingIds);
   db.prepare(`DELETE FROM waiting_guests WHERE meeting_id IN (${placeholders})`).run(...meetingIds);
   db.prepare(`DELETE FROM recordings WHERE meeting_id IN (${placeholders})`).run(...meetingIds);
   db.prepare(`DELETE FROM meetings WHERE id IN (${placeholders})`).run(...meetingIds);

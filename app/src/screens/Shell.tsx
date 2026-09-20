@@ -6,6 +6,7 @@ import { api, meetingLink, recordingFileUrl } from '../api';
 import type { Meeting, Recording } from '../api';
 import { Ic } from '../icons';
 import { BackgroundPicker } from './BackgroundPicker';
+import { Transcript } from './Transcript';
 import { PermissionsPanel } from '../desktop/live/PermissionsPanel';
 import { isDesktopApp } from '../desktop/live/bridge';
 import { downloadIcs, googleCalendarUrl, outlookCalendarUrl } from '../util';
@@ -203,7 +204,8 @@ function Dashboard() {
               </div>
               <button onClick={() => app.openMeeting(m)} style={{ background: '#f08b5f', color: '#241209', border: 'none', borderRadius: 9, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Join</button>
               <button className="hv-fg" onClick={() => { navigator.clipboard?.writeText(meetingLink(m.code)); app.toast('Invite link copied'); }} title="Copy invite link" style={{ background: 'none', border: 'none', color: '#9a9084', cursor: 'pointer', padding: 4 }}><Ic name="link" size={16} /></button>
-              <button className="hv-fg" onClick={() => app.deleteMeeting(m.id)} title="Delete meeting" style={{ background: 'none', border: 'none', color: '#9a9084', cursor: 'pointer', padding: 4 }}><Ic name="close" size={15} /></button>
+              <button className="hv-fg" onClick={() => app.go('transcript', { meeting: m })} title="View transcript" aria-label={`View transcript for ${m.title || 'this meeting'}`} style={{ background: 'none', border: 'none', color: '#9a9084', cursor: 'pointer', padding: 4 }}><Ic name="captions" size={16} /></button>
+              <button className="hv-fg" onClick={() => app.deleteMeeting(m.id)} title="Delete meeting" aria-label={`Delete ${m.title || 'this meeting'}`} style={{ background: 'none', border: 'none', color: '#9a9084', cursor: 'pointer', padding: 4 }}><Ic name="close" size={15} /></button>
             </div>
           ))}
         </div>
@@ -571,6 +573,7 @@ export function Shell() {
         {s.screen === 'schedDone' && <SchedDone />}
         {s.screen === 'detail' && <Detail />}
         {s.screen === 'recordings' && <Recordings />}
+        {s.screen === 'transcript' && <Transcript />}
         {s.screen === 'settings' && <Settings />}
       </main>
       {s.joinModal && <JoinModal />}

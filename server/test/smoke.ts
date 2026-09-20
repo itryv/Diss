@@ -1016,6 +1016,43 @@ try {
     ok("recording file/delete for unknown id return 404");
   }
 
+  // --- transcript ---
+  {
+    const bad = await api("POST", `/api/meetings/${instant.code}/transcript`, {}, {
+      chatToken: "forged",
+      lines: [{ text: "never stored" }],
+    });
+    assert.equal(bad.status, 401);
+
+    const r = await api("POST", `/api/meetings/${instant.code}/transcript`, {}, {
+      chatToken: guestChat,
+      lines: [
+        { text: "first thing said", ts: "2026-01-01T10:00:00.000Z" },
+        { text: "second thing said", ts: "2026-01-01T10:00:05.000Z" },
+      ],
+    });
+    assert.equal(r.status, 202);
+    assert.equal(r.json.stored, 2);
+    ok("transcript append requires a valid chatToken and stores final lines");
+  }
+  {
+    // A verbatim record of everything everyone said is host-only: holding the
+    // meeting code must not be enough to pull it down afterwards.
+    const anon = await api("GET", `/api/meetings/${instant.code}/transcript`);
+    assert.equal(anon.status, 401);
+    const outsider = await api("GET", `/api/meetings/${instant.code}/transcript`, member);
+    assert.equal(outsider.status, 403);
+
+    const r = await api("GET", `/api/meetings/${instant.code}/transcript`, host);
+    assert.equal(r.status, 200);
+    assert.equal(r.json.lines.length, 2);
+    // Oldest first, and attributed from the token rather than the request body.
+    assert.equal(r.json.lines[0].text, "first thing said");
+    assert.equal(r.json.lines[1].text, "second thing said");
+    assert.equal(r.json.lines[0].identity, guestIdentity);
+    ok("transcript read is host-only, ordered oldest-first, attributed from the token");
+  }
+
   // --- end for all ---
   {
     const nobody = await api("POST", `/api/meetings/${instant.code}/end`);
@@ -1588,10 +1625,19 @@ try {
       await aapi("POST", `/api/meetings/${meeting.code}/token`, {}, { displayName: "Waiter" });
       assert.equal(count("waiting_guests", "meeting_id = ?", meeting.id), 1);
 
+      // A transcript is a verbatim record of what everyone said, so deleting
+      // the meeting has to take it with it.
+      adminDb.prepare(
+        `INSERT INTO transcript_lines (id, meeting_id, identity, display_name, text, ts)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(randomUUID(), meeting.id, "user-x", "X", "said something", new Date().toISOString());
+      assert.equal(count("transcript_lines", "meeting_id = ?", meeting.id), 1);
+
       const r = await aapi("DELETE", `/api/admin/meetings/${meeting.id}`, admin);
       assert.equal(r.status, 204);
       assert.equal(count("meetings", "id = ?", meeting.id), 0);
       assert.equal(count("messages", "meeting_id = ?", meeting.id), 0);
+      assert.equal(count("transcript_lines", "meeting_id = ?", meeting.id), 0, "transcript lines");
       assert.equal(count("waiting_guests", "meeting_id = ?", meeting.id), 0);
       assert.equal(count("breakouts", "meeting_id = ?", meeting.id), 0);
       assert.equal(count("breakout_assignments", "breakout_id = ?", breakoutId), 0);
