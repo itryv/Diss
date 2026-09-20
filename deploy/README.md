@@ -127,21 +127,86 @@ npm run dist:mac
 mkdir -p ../deploy/downloads
 cp dist/Diss-1.0.0.dmg ../deploy/downloads/
 cp dist/Diss-1.0.0-arm64.dmg ../deploy/downloads/
-rsync -az ../deploy/downloads/ <host>:<repo>/deploy/downloads/
-docker compose up -d --force-recreate diss-app
+rsync -a ../deploy/downloads/ <host>:<repo>/deploy/downloads/
+```
+
+`downloads/` is a bind mount, so the new files are served the moment rsync
+finishes — no `docker compose` step, and no container restart.
+
+`-a` without `-z`: a dmg is already compressed, so `-z` only burns CPU.
+
+That rsync needs `<repo>/deploy/downloads/` to be writable by the user you SSH
+in as. If it is owned by root you get `mkstemp … Permission denied`; fix the
+directory once rather than reaching for `sudo` on every release:
+
+```bash
+sudo chown "$USER:$USER" <repo>/deploy/downloads
+```
+
+Verify what is actually being served, rather than trusting the upload:
+
+```bash
+curl -sI https://<APP_DOMAIN>/downloads/Diss-1.0.0.dmg | grep -i content-length
 ```
 
 The current preview is unsigned. Before presenting it as a stable release,
 configure a Developer ID Application certificate and Apple notarization for
 electron-builder, rebuild, and replace both files under the same versioned names.
 
+Because both files keep the same versioned names across rebuilds, size or
+checksum is the only way to tell a stale installer from a fresh one. Compare
+`shasum -a 256` on the Mac against `sha256sum` on the host after publishing.
+
 ## Upgrades
 
+This assumes `<repo>` on the host is a Git checkout of this repository:
+
 ```bash
-cd deploy && git pull && docker compose up -d --build
+cd <repo> && git pull && cd deploy && docker compose up -d --build
 ```
 
 The SQLite DB and recordings survive because they live in `./data/server`.
+`deploy/.env`, `deploy/data/` and `deploy/downloads/` are all ignored, so a
+pull never touches them.
+
+`--build` rebuilds `diss-app` and `diss-server` from the pulled source. Name a
+service to rebuild just one, e.g. `docker compose up -d --build diss-app` after
+a frontend-only change.
+
+### If the host was deployed by rsync instead of Git
+
+An `rsync`-ed tree has no `.git`, so `git pull` fails with *not a git
+repository* and the host silently drifts from `main` — which is how a stale
+frontend bundle survives a "deploy". Convert it once, in place:
+
+```bash
+cd <repo> && git init -b main && git remote add origin <REPO_URL> && git fetch origin main && git reset origin/main
+```
+
+`git reset` without `--hard` moves `HEAD` and the index only, leaving every
+file on disk untouched, so `git status` then shows exactly how far the host had
+drifted. Review that list, then take the committed version of whatever should
+not differ:
+
+```bash
+cd <repo> && git checkout -f -- .
+```
+
+Ignored files — `.env`, `data/`, `downloads/` — survive both commands, because
+neither `reset` nor `checkout` touches files Git is not tracking.
+
+### Verifying a frontend deploy
+
+`docker compose up -d --build` reports success even when the running container
+still serves the previous bundle, so check the hash actually being served:
+
+```bash
+curl -s https://<APP_DOMAIN>/ | grep -o '/assets/index-[A-Za-z0-9_-]*\.js'
+```
+
+Vite hashes the filename by content, so that string changing is what proves a
+frontend deploy landed. It should match `dist/assets/index-*.js` from the build
+output.
 
 ## MONITORING
 
