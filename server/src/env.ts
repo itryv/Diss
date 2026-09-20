@@ -46,6 +46,12 @@ export interface Env {
    * grantable through the API, so a stolen admin session cannot widen itself.
    */
   ADMIN_EMAILS: string;
+  /**
+   * Bearer token for GET /api/metrics. Empty = the endpoint is admin-session
+   * only, which is the safe default: request counts and room occupancy are not
+   * something to publish to the internet.
+   */
+  METRICS_TOKEN: string;
 }
 
 /**
@@ -96,6 +102,7 @@ export function readEnv(overrides: Partial<Env> = {}): Env {
     RECORDINGS_DIR: fromEnv("RECORDINGS_DIR") ?? "./data/recordings",
     RATE_LIMIT_WINDOW_MS: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000),
     ADMIN_EMAILS: process.env.ADMIN_EMAILS ?? "",
+    METRICS_TOKEN: fromEnv("METRICS_TOKEN") ?? "",
     ...overrides,
   };
 }

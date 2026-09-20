@@ -212,6 +212,45 @@ Vite hashes the filename by content, so that string changing is what proves a
 frontend deploy landed. It should match `dist/assets/index-*.js` from the build
 output.
 
+## Backups
+
+`backup.sh` takes a verified snapshot of the database. Run it from cron:
+
+```bash
+17 3 * * * cd $HOME/apps/diss/deploy && ./backup.sh >> $HOME/apps/diss/deploy/data/server/backups/backup.log 2>&1
+```
+
+It uses `VACUUM INTO`, not `cp` — a plain copy of a live WAL-mode database
+silently omits whatever is still in the `-wal` and yields a truncated file that
+looks perfectly fine. Every snapshot is opened and checked (`integrity_check`,
+plus a row count to catch a valid-but-empty database) before it is kept; a
+failed check deletes the file and exits non-zero.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BACKUP_OUT_DIR` | `data/server/backups` | Must sit under `data/server`, which is what the container sees as `/data` |
+| `BACKUP_KEEP_DAYS` | `14` | Retention |
+| `BACKUP_RECORDINGS` | unset | `1` also tars the recordings — they are large, so decide deliberately |
+| `BACKUP_REMOTE` | unset | rsync target for an offsite copy |
+
+**Set `BACKUP_REMOTE`.** Without it every copy is on the same disk as the
+original, which survives a bad deploy or a stray `rm` but not the disk or the
+VPS dying — the failure backups mostly exist for. The script says so on each
+run rather than letting it pass unnoticed.
+
+Restore drill (do this before you need it):
+
+```bash
+gunzip -c data/server/backups/diss-<stamp>.db.gz > /tmp/restore.db
+docker exec diss-diss-server-1 node -e "const d=new (require('better-sqlite3'))('/data/backups/restore.db',{readonly:true});console.log(d.pragma('integrity_check',{simple:true}));"
+```
+
+## Measurement
+
+`GET /api/metrics` exposes Prometheus metrics (bearer `METRICS_TOKEN`, or an
+admin session). `bench/` holds a load generator. See [bench/README.md](../bench/README.md)
+for what to measure and how, including the limitations worth stating.
+
 ## MONITORING
 
 - **Caddy access logs** — the `log { output file … }` block in

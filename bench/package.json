@@ -1,0 +1,9 @@
+{
+  "name": "diss-bench",
+  "private": true,
+  "type": "module",
+  "description": "Load and capacity measurement for the Diss server.",
+  "scripts": {
+    "api": "node api-load.mjs"
+  }
+}

@@ -36,7 +36,7 @@ services:
       LIVEKIT_API_URL: http://livekit:7880
       CORS_ORIGIN: https://${APP_DOMAIN}
       EGRESS_ENABLED: ${EGRESS_ENABLED:-true}
-      # SESSION_SECRET, LIVEKIT_API_KEY, LIVEKIT_API_SECRET come from .env
+      # SESSION_SECRET, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, METRICS_TOKEN come from .env
     volumes:
       # SQLite DB + recordings live on the host so upgrades keep data.
       - ./data/server:/data

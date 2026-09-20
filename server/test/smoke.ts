@@ -17,6 +17,9 @@ import { buildServer } from "../src/app.js";
 process.env.NODE_ENV = "test";
 
 const tempDir = mkdtempSync(join(tmpdir(), "diss-smoke-"));
+/** Fixed so the test can present it; production reads it from the environment. */
+const METRICS_TOKEN = "test-metrics-token";
+
 const env = readEnv({
   PORT: 0,
   DATABASE_PATH: join(tempDir, "diss.db"),
@@ -27,6 +30,7 @@ const env = readEnv({
   LIVEKIT_API_SECRET: "secret",
   EGRESS_ENABLED: false,
   RECORDINGS_DIR: join(tempDir, "recordings"),
+  METRICS_TOKEN: METRICS_TOKEN,
 });
 
 const app = await buildServer(env);
@@ -65,6 +69,20 @@ async function request(
 
 const api = (method: string, path: string, ctx: Ctx = {}, body?: unknown) =>
   request(base, method, path, ctx, body);
+
+/** For responses that are not JSON — the Prometheus exposition format. */
+async function apiRaw(
+  method: string,
+  path: string,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; text: string; headers: Record<string, string> }> {
+  const res = await fetch(base + path, { method, headers });
+  return {
+    status: res.status,
+    text: await res.text(),
+    headers: Object.fromEntries(res.headers.entries()),
+  };
+}
 
 function captureSession(ctx: Ctx, setCookie: string | null) {
   assert.ok(setCookie, "expected a Set-Cookie header");
@@ -1014,6 +1032,48 @@ try {
     const del = await api("DELETE", "/api/recordings/nonexistent", host);
     assert.equal(del.status, 404);
     ok("recording file/delete for unknown id return 404");
+  }
+
+  {
+    // Health must NOT be rate limited. The container healthcheck and any uptime
+    // monitor hammer it, and a 429 under ordinary load reads as "unhealthy" —
+    // so the limiter would make Docker restart a server that was merely busy.
+    // (The global limit is 300/window; 350 proves the exemption holds past it.)
+    let nonOk = 0;
+    for (let i = 0; i < 350; i++) {
+      const r = await api("GET", "/api/health");
+      if (r.status !== 200) nonOk += 1;
+    }
+    assert.equal(nonOk, 0, "health must never be rate limited");
+    ok("health is exempt from rate limiting (350 consecutive requests, all 200)");
+  }
+
+  // --- metrics ---
+  {
+    // Request volumes, room occupancy and storage sizes are not public.
+    const anon = await api("GET", "/api/metrics");
+    assert.equal(anon.status, 403);
+    const asUser = await api("GET", "/api/metrics", host);
+    assert.equal(asUser.status, 403, "a normal user is not an admin");
+    const wrongToken = await apiRaw("GET", "/api/metrics", { authorization: "Bearer wrong" });
+    assert.equal(wrongToken.status, 403);
+
+    const r = await apiRaw("GET", "/api/metrics", { authorization: `Bearer ${METRICS_TOKEN}` });
+    assert.equal(r.status, 200);
+    assert.match(r.headers["content-type"] ?? "", /text\/plain/);
+    const body = r.text;
+    // Exposition format: every series needs its HELP and TYPE.
+    assert.match(body, /# HELP diss_http_requests_total/);
+    assert.match(body, /# TYPE diss_http_requests_total counter/);
+    assert.match(body, /# TYPE diss_http_request_duration_seconds histogram/);
+    // The route LABEL must be the pattern, not a resolved URL — otherwise every
+    // meeting code becomes its own time series.
+    assert.match(body, /route="\/api\/meetings\/:code"/);
+    assert.ok(!/route="\/api\/meetings\/[a-z]{3}-/.test(body), "route label must not contain a real code");
+    assert.match(body, /diss_users \d+/);
+    assert.match(body, /diss_transcript_lines \d+/);
+    assert.match(body, /diss_rate_limited_total \d+/);
+    ok("metrics needs a bearer token or admin, and emits valid exposition format");
   }
 
   // --- transcript ---

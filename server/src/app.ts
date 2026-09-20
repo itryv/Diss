@@ -2,7 +2,7 @@ import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply } f
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { chmod, mkdir, readdir, stat, statfs, unlink } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -26,6 +26,7 @@ import {
   type WaitingGuestRow,
 } from "./db.js";
 import { mintChatToken, verifyChatToken } from "./chatToken.js";
+import { recordRequest, renderMetrics } from "./metrics.js";
 import {
   SESSION_COOKIE,
   clearSessionCookie,
@@ -184,6 +185,14 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
     global: true,
     max: 300,
     timeWindow: env.RATE_LIMIT_WINDOW_MS,
+  });
+
+  // Every response feeds the metrics series. `routerPath` is the ROUTE pattern
+  // ("/api/meetings/:code"), not the resolved URL — using the URL would create
+  // a new time series per meeting code and blow up cardinality immediately.
+  app.addHook("onResponse", async (request, reply) => {
+    const route = request.routeOptions?.url ?? "unmatched";
+    recordRequest(request.method, route, reply.statusCode, reply.elapsedTime / 1000);
   });
 
   app.addHook("onClose", async () => {
@@ -396,36 +405,105 @@ export async function buildServer(env: Env): Promise<FastifyInstance> {
    * Returns 503 (not 500) when degraded, so a proxy or orchestrator treats it
    * as "not ready" rather than an application error.
    */
-  app.get("/api/health", async (_request, reply) => {
-    let dbOk = false;
-    try {
-      db.prepare("SELECT 1").get();
-      dbOk = true;
-    } catch (err) {
-      app.log.error({ err }, "health: database check failed");
-    }
+  app.get(
+    "/api/health",
+    // Exempt from rate limiting, and it has to be. The healthcheck and any
+    // uptime monitor poll this constantly, and under a burst of ordinary
+    // traffic the global limiter would start answering 429 — which the
+    // container healthcheck reads as "unhealthy" and Docker answers by
+    // restarting a server that was merely busy. A load test found this.
+    { config: { rateLimit: false } },
+    async (_request, reply) => {
+      let dbOk = false;
+      try {
+        db.prepare("SELECT 1").get();
+        dbOk = true;
+      } catch (err) {
+        app.log.error({ err }, "health: database check failed");
+      }
 
-    let diskFreeBytes = 0;
-    try {
-      const fs = await statfs(dirname(databaseFile));
-      diskFreeBytes = Number(fs.bavail) * Number(fs.bsize);
-    } catch {
-      // statfs unsupported here — reported as 0, which never fails the check.
-    }
+      let diskFreeBytes = 0;
+      try {
+        const fs = await statfs(dirname(databaseFile));
+        diskFreeBytes = Number(fs.bavail) * Number(fs.bsize);
+      } catch {
+        // statfs unsupported here — reported as 0, which never fails the check.
+      }
 
-    // A nearly full disk is the most likely way this deployment dies: SQLite
-    // starts failing every write and egress dies mid-recording. Surface it
-    // while there is still time to act.
-    const diskLow = diskFreeBytes > 0 && diskFreeBytes < MIN_FREE_DISK_BYTES;
-    const ok = dbOk && !diskLow;
-    return reply.status(ok ? 200 : 503).send({
-      ok,
-      db: dbOk,
-      diskFreeBytes,
-      diskLow,
-      uptimeSeconds: Math.floor(process.uptime()),
-      startedAt: serverStartedAt,
-    });
+      // A nearly full disk is the most likely way this deployment dies: SQLite
+      // starts failing every write and egress dies mid-recording. Surface it
+      // while there is still time to act.
+      const diskLow = diskFreeBytes > 0 && diskFreeBytes < MIN_FREE_DISK_BYTES;
+      const ok = dbOk && !diskLow;
+      return reply.status(ok ? 200 : 503).send({
+        ok,
+        db: dbOk,
+        diskFreeBytes,
+        diskLow,
+        uptimeSeconds: Math.floor(process.uptime()),
+        startedAt: serverStartedAt,
+      });
+    },
+  );
+
+  /**
+   * Prometheus metrics.
+   *
+   * Gated: request volumes, room occupancy and storage sizes are not something
+   * to hand to the internet. A scraper uses METRICS_TOKEN as a bearer token; a
+   * human can reach it with an admin session. With no token configured, only
+   * the admin session works.
+   */
+  app.get("/api/metrics", async (request, reply) => {
+      const header = request.headers.authorization ?? "";
+      const presented = header.startsWith("Bearer ") ? header.slice(7) : "";
+      let allowed = false;
+      if (env.METRICS_TOKEN && presented) {
+        // Constant-time: a length-leaking compare on a bearer token is a free win
+        // for anyone willing to make a few thousand requests.
+        const a = Buffer.from(presented);
+        const b = Buffer.from(env.METRICS_TOKEN);
+        allowed = a.length === b.length && timingSafeEqual(a, b);
+      }
+      if (!allowed) {
+        const user = requireUser(request);
+        allowed = !!user && isAdminEmail(adminEmails, user.email);
+      }
+      if (!allowed) return reply.status(403).send({ error: "forbidden" });
+
+      const one = (sql: string): number =>
+        (db.prepare(sql).get() as { c: number } | undefined)?.c ?? 0;
+
+      const live = await listLiveRooms();
+      let diskFreeBytes = 0;
+      try {
+        const fs = await statfs(dirname(databaseFile));
+        diskFreeBytes = Number(fs.bavail) * Number(fs.bsize);
+      } catch {
+        // statfs unsupported here — 0 reads as "unknown" on the graph.
+      }
+
+      const body = renderMetrics({
+        users: one("SELECT COUNT(*) c FROM users"),
+        meetings: one("SELECT COUNT(*) c FROM meetings"),
+        recordings: one("SELECT COUNT(*) c FROM recordings"),
+        messages: one("SELECT COUNT(*) c FROM messages"),
+        transcriptLines: one("SELECT COUNT(*) c FROM transcript_lines"),
+        liveRooms: live.rooms.length,
+        liveParticipants: live.rooms.reduce((n, r) => n + (r.numParticipants ?? 0), 0),
+        livekitReachable: live.reachable,
+        dbBytes:
+          (await fileSize(databaseFile)) +
+          (await fileSize(`${databaseFile}-wal`)) +
+          (await fileSize(`${databaseFile}-shm`)),
+        recordingsBytes: await directorySize(recordingsDir),
+        diskFreeBytes,
+        uptimeSeconds: Math.floor(process.uptime()),
+      });
+      return reply
+        .status(200)
+        .header("content-type", "text/plain; version=0.0.4; charset=utf-8")
+        .send(body);
   });
 
   // ---------- Auth ----------
