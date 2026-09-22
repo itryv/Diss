@@ -22,7 +22,8 @@ export function Landing() {
   }, []);
   return (
     <section style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'radial-gradient(1000px 600px at 70% -10%, rgba(240,139,95,.10), transparent 60%), #151210' }}>
-      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '22px 48px' }}>
+      {/* max(): --titlebar is the macOS traffic-light strip in the packaged app, 0px on the web. */}
+      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'max(22px, var(--titlebar)) 48px 22px' }}>
         <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 26, letterSpacing: -0.5, display: 'flex', alignItems: 'center', gap: 2 }}>
           diss<span style={{ color: '#f08b5f', fontSize: 30, lineHeight: 0.6 }}>.</span>
         </div>

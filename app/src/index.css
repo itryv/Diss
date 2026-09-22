@@ -11,6 +11,9 @@
   --sar: env(safe-area-inset-right, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
   --sal: env(safe-area-inset-left, 0px);
+  /* Height of the strip the macOS traffic lights sit in. Zero everywhere else,
+     so the same `max(padding, var(--titlebar))` works in a browser tab too. */
+  --titlebar: 0px;
 }
 
 html, body { margin: 0; padding: 0; background: #151210; color: #f4eee5; }
@@ -185,19 +188,20 @@ input:focus, textarea:focus { border-color: #f08b5f !important; }
 
 /* ---------- Packaged desktop app ---------- */
 /* macOS draws traffic lights over our content: reserve the top strip and make it
-   draggable so the frameless window still behaves like a window. */
-.is-electron-mac body { padding-top: 0; }
+   draggable so the frameless window still behaves like a window.
+
+   The strip is published as --titlebar rather than as a padding-top rule here,
+   because every piece of chrome that has to clear it (the sidebar, the admin top
+   bar, the landing header) sets its padding from a React style object, and an
+   inline style beats a stylesheet. The chrome reads the variable instead. */
+:root.is-electron-mac { --titlebar: 38px; }
 .is-electron-mac .app-root::before {
-  content: ""; position: fixed; top: 0; left: 0; right: 0; height: 38px;
+  content: ""; position: fixed; top: 0; left: 0; right: 0; height: var(--titlebar);
   -webkit-app-region: drag; z-index: 500; pointer-events: auto;
 }
 .is-electron-mac .app-root button,
 .is-electron-mac .app-root a,
 .is-electron-mac .app-root input { -webkit-app-region: no-drag; }
-/* Push the app's own chrome clear of the traffic lights. */
-.is-electron-mac .shell-screen nav,
-.is-electron-mac .screen-landing header { padding-top: 38px; }
-.is-electron-mac .screen-meeting { padding-top: 0; }
 
 /* Satellite Electron windows (tray panel, mini window): transparent page so the
    window's own rounded corners show, and no lingering focus rings on click. */

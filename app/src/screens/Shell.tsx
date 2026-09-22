@@ -84,6 +84,11 @@ function NavButton({ icon, label, active, onClick, nowrap }: { icon: React.React
  * `row` lays it out as the scrollable top bar that index.css produces below
  * 760px — the admin screen paints its own surface, so it asks for that layout
  * in JS instead of inheriting the stylesheet's `.shell-screen` rules.
+ *
+ * Both layouts open with the wordmark, which on the packaged macOS app is
+ * exactly where the traffic lights are painted. --titlebar is the height of
+ * that strip (0px in a browser), so `max()` keeps the normal padding on the web
+ * and drops the wordmark clear of the lights in the app.
  */
 export function ShellNav({ row = false }: { row?: boolean }) {
   const app = useApp();
@@ -92,12 +97,12 @@ export function ShellNav({ row = false }: { row?: boolean }) {
     ? {
         width: '100%', flexShrink: 0, background: '#1a1613', borderBottom: '1px solid #2a241e',
         display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 6,
-        padding: 'calc(8px + var(--sat)) calc(10px + var(--sar)) 8px calc(10px + var(--sal))',
+        padding: 'max(calc(8px + var(--sat)), var(--titlebar)) calc(10px + var(--sar)) 8px calc(10px + var(--sal))',
         overflowX: 'auto', scrollbarWidth: 'none',
       }
     : {
         width: 232, flexShrink: 0, background: '#1a1613', borderRight: '1px solid #2a241e',
-        display: 'flex', flexDirection: 'column', padding: '20px 12px',
+        display: 'flex', flexDirection: 'column', padding: 'max(20px, var(--titlebar)) 12px 20px',
       };
   return (
     <nav style={navStyle}>
