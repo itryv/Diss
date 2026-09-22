@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../store';
 
-const DESKTOP_VERSION = '1.0.0';
+const DESKTOP_VERSION = '1.0.1';
 const MAC_ARM_DOWNLOAD = `/downloads/Diss-${DESKTOP_VERSION}-arm64.dmg`;
 const MAC_INTEL_DOWNLOAD = `/downloads/Diss-${DESKTOP_VERSION}.dmg`;
 
